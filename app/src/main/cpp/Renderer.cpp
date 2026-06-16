@@ -29,8 +29,11 @@ static const float ZOOM_X_MAX_OFFSET = 0.25f;
 static const float ZOOM_Y_MIN = -0.8f;
 static const float ZOOM_Y_MAX = 0.8f;
 
-static const float MIN_ZOOM = 0.00001f;
-static const float MAX_ZOOM_FACTOR = 1000000.0f;
+// MIN_ZOOM sets the maximum zoom-out; lowered so the outer planets (Neptune ~601400
+// units) fit on screen. MAX_ZOOM_FACTOR is raised in step to preserve the zoom-in limit
+// (max zoom = MIN_ZOOM * MAX_ZOOM_FACTOR = 10, unchanged).
+static const float MIN_ZOOM = 0.000001f;
+static const float MAX_ZOOM_FACTOR = 10000000.0f;
 
 static const float CAM_BTN_CENTER_Y = 0.82f; // top-center
 static const float CAM_BTN_HALF = 0.08f;     // half side length (small square)

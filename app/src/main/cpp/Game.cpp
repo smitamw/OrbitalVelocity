@@ -46,6 +46,57 @@ Game::Game() : zoom_(0.01f), throttle_(0.0f), joystick_({0, 0}) {
     makeMoon(MARS, 600.0f,  1.0f, 14.0f, phobosColor);    // index 6: Phobos
     makeMoon(MARS, 1300.0f, 0.5f, 10.0f, deimosColor);    // index 7: Deimos
 
+    // Outer planets. Heliocentric distances stay proportional to the real semi-major
+    // axes (Earth = 20000 units): Jupiter 5.20 AU, Saturn 9.58, Uranus 19.18, Neptune 30.07.
+    // Masses are kept well below the Sun's so the system stays stable; their large Hill
+    // spheres (a consequence of the wide orbits) leave plenty of room for moons. Moon
+    // distances preserve the real ordering/ratios but are scaled for visibility, like the
+    // inner moons.
+    float jupiterColor[4] = {0.80f, 0.70f, 0.50f, 1.0f}; // banded tan
+    float saturnColor[4]  = {0.85f, 0.78f, 0.55f, 1.0f}; // pale gold
+    float uranusColor[4]  = {0.60f, 0.85f, 0.90f, 1.0f}; // pale cyan
+    float neptuneColor[4] = {0.25f, 0.40f, 0.85f, 1.0f}; // deep blue
+
+    int JUPITER = (int)bodies_.size();
+    makePlanet(104000.0f, 40000.0f, 600.0f, jupiterColor);
+    float ioColor[4]       = {0.90f, 0.85f, 0.40f, 1.0f}; // sulfur yellow
+    float europaColor[4]   = {0.85f, 0.85f, 0.80f, 1.0f}; // icy white
+    float ganymedeColor[4] = {0.60f, 0.55f, 0.50f, 1.0f}; // tan-gray
+    float callistoColor[4] = {0.45f, 0.42f, 0.40f, 1.0f}; // dark gray
+    makeMoon(JUPITER, 1800.0f, 30.0f, 40.0f, ioColor);
+    makeMoon(JUPITER, 2850.0f, 25.0f, 35.0f, europaColor);
+    makeMoon(JUPITER, 4550.0f, 50.0f, 58.0f, ganymedeColor);
+    makeMoon(JUPITER, 7800.0f, 45.0f, 52.0f, callistoColor);
+
+    int SATURN = (int)bodies_.size();
+    makePlanet(191600.0f, 28000.0f, 520.0f, saturnColor);
+    float enceladusColor[4] = {0.90f, 0.90f, 0.95f, 1.0f}; // bright ice
+    float rheaColor[4]      = {0.70f, 0.70f, 0.70f, 1.0f}; // gray
+    float titanColor[4]     = {0.85f, 0.60f, 0.30f, 1.0f}; // orange haze
+    float iapetusColor[4]   = {0.50f, 0.45f, 0.40f, 1.0f}; // two-tone brown
+    makeMoon(SATURN, 950.0f,   3.0f, 14.0f, enceladusColor);
+    makeMoon(SATURN, 2050.0f, 15.0f, 30.0f, rheaColor);
+    makeMoon(SATURN, 4800.0f, 60.0f, 55.0f, titanColor);
+    makeMoon(SATURN, 12000.0f, 12.0f, 28.0f, iapetusColor);
+
+    int URANUS = (int)bodies_.size();
+    makePlanet(383600.0f, 15000.0f, 360.0f, uranusColor);
+    float mirandaColor[4] = {0.60f, 0.60f, 0.65f, 1.0f};
+    float arielColor[4]   = {0.70f, 0.70f, 0.72f, 1.0f};
+    float titaniaColor[4] = {0.65f, 0.60f, 0.60f, 1.0f};
+    float oberonColor[4]  = {0.55f, 0.50f, 0.50f, 1.0f};
+    makeMoon(URANUS, 2000.0f,  4.0f, 14.0f, mirandaColor);
+    makeMoon(URANUS, 2950.0f, 10.0f, 26.0f, arielColor);
+    makeMoon(URANUS, 6700.0f, 16.0f, 32.0f, titaniaColor);
+    makeMoon(URANUS, 9000.0f, 15.0f, 31.0f, oberonColor);
+
+    int NEPTUNE = (int)bodies_.size();
+    makePlanet(601400.0f, 17000.0f, 350.0f, neptuneColor);
+    float proteusColor[4] = {0.45f, 0.45f, 0.50f, 1.0f}; // dark
+    float tritonColor[4]  = {0.80f, 0.75f, 0.78f, 1.0f}; // pinkish ice
+    makeMoon(NEPTUNE, 2000.0f,  6.0f, 16.0f, proteusColor);
+    makeMoon(NEPTUNE, 6000.0f, 40.0f, 45.0f, tritonColor);
+
     // Ship - start orbiting Earth stably
     float shipDist = 350.0f;
     float shipRelVel = std::sqrt(bodies_[EARTH].mu / shipDist);
