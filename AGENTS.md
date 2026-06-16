@@ -31,7 +31,8 @@ OrbitalVelocity is a 2D space exploration game built for Android using C++ (GLES
     - **Zoom Slider**: Right side for logarithmic camera scale.
     - **Camera Mode Button**: Top-center; small translucent square with a polygonal camera icon. Tap toggles between Ship and Body modes. Current mode name shown as a text label above the button.
     - **Labels**: A minimal vector font (`drawText`) renders control labels. Implemented glyphs: T, H, R, J, O, Y, Z, M, S, I, P, B, D.
-- **Celestial Bodies**: Sun, Earth, Moon. The ship starts in a stable circular orbit around Earth.
+- **Celestial Bodies**: Sun, Mercury, Venus, Earth (with the Moon), and Mars (with moons Phobos and Deimos) — eight bodies total. The inner-planet orbit radii are scaled roughly proportional to the real semi-major axes, with Earth fixed at 20000 units (Mercury ~7700, Venus ~14500, Mars ~30500). The Mars moons use exaggerated spacing for visibility but stay within Mars's Hill sphere. The ship starts in a stable circular orbit around Earth.
+- **Body hierarchy**: Each `CelestialBody` carries a `parent` index (the body it orbits; `-1` for the Sun). The renderer uses this to draw each body's orbit ellipse around its primary, replacing the previous hardcoded `[Sun, Earth, Moon]` index assumptions, so bodies can be added/reordered freely.
 - **Orbit Prediction**: Analytic conics (ellipse/hyperbola) computed from the orbital state vector relative to the dominant gravitational body (highest `mu / r²`).
 
 ## Build & Tooling

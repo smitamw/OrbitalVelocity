@@ -11,6 +11,7 @@ struct CelestialBody {
     float radius;
     float mu; // G * mass
     float color[4];
+    int parent; // index of the body this orbits; -1 for the Sun
 };
 
 enum class CameraMode { Ship, Body };

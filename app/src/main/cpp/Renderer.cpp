@@ -280,10 +280,14 @@ void Renderer::render() {
     globalMVP[13] = -camCenter.y * zoom;
     shader_->setMVP(globalMVP);
 
-    // Draw Planet Orbits
+    // Draw Planet/Moon Orbits — each body is drawn around its parent (the Sun has none)
     float planetOrbitColor[4] = {1, 1, 1, 0.15f};
-    if (bodies.size() >= 2) drawOrbit(bodies[1].pos, bodies[1].vel, bodies[0], bodies[0].mu, planetOrbitColor);
-    if (bodies.size() >= 3) drawOrbit(bodies[2].pos, bodies[2].vel, bodies[1], bodies[1].mu, planetOrbitColor);
+    for (const auto& body : bodies) {
+        if (body.parent >= 0) {
+            const CelestialBody& primaryBody = bodies[body.parent];
+            drawOrbit(body.pos, body.vel, primaryBody, primaryBody.mu, planetOrbitColor);
+        }
+    }
 
     // Draw Ship Orbit
     if (primary) {

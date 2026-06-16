@@ -3,22 +3,52 @@
 #include <algorithm>
 
 Game::Game() : zoom_(0.01f), throttle_(0.0f), joystick_({0, 0}) {
-    // Sun
-    bodies_.push_back({{0, 0}, {0, 0}, 1000000.0f, 1000.0f, G * 1000000.0f, {1.0f, 0.8f, 0.0f, 1.0f}});
+    // Helper: a planet in a circular heliocentric orbit at `dist` from the Sun.
+    auto makePlanet = [&](float dist, float mass, float radius, float color[4]) {
+        float vel = std::sqrt(bodies_[0].mu / dist); // index 0 is always the Sun
+        bodies_.push_back({{dist, 0}, {0, vel}, mass, radius, G * mass, {color[0], color[1], color[2], color[3]}, 0});
+    };
+    // Helper: a moon in a circular orbit at `dist` from its parent planet.
+    auto makeMoon = [&](int parent, float dist, float mass, float radius, float color[4]) {
+        const CelestialBody& p = bodies_[parent];
+        float vel = std::sqrt(p.mu / dist);
+        bodies_.push_back({{p.pos.x + dist, p.pos.y}, {p.vel.x, p.vel.y + vel}, mass, radius, G * mass, {color[0], color[1], color[2], color[3]}, parent});
+    };
 
-    // Earth
+    // Index 0: Sun (pinned at origin, no parent)
+    bodies_.push_back({{0, 0}, {0, 0}, 1000000.0f, 1000.0f, G * 1000000.0f, {1.0f, 0.8f, 0.0f, 1.0f}, -1});
+
+    // Inner planets. Distances are roughly proportional to real semi-major axes,
+    // scaled so Earth sits at 20000 units (Mercury 0.39 AU, Venus 0.72, Mars 1.52).
+    float mercuryColor[4] = {0.6f, 0.55f, 0.5f, 1.0f}; // gray-brown
+    float venusColor[4]   = {0.9f, 0.8f, 0.5f, 1.0f};  // pale yellow
+    float earthColor[4]   = {0.2f, 0.6f, 1.0f, 1.0f};  // blue
+    float marsColor[4]    = {0.8f, 0.35f, 0.2f, 1.0f}; // reddish
+    makePlanet(7700.0f,  600.0f,   90.0f,  mercuryColor); // index 1: Mercury
+    makePlanet(14500.0f, 8100.0f,  190.0f, venusColor);   // index 2: Venus
+
     float earthDist = 20000.0f;
     float earthVel = std::sqrt(bodies_[0].mu / earthDist);
-    bodies_.push_back({{earthDist, 0}, {0, earthVel}, 10000.0f, 200.0f, G * 10000.0f, {0.2f, 0.6f, 1.0f, 1.0f}});
+    makePlanet(earthDist, 10000.0f, 200.0f, earthColor);  // index 3: Earth
+    const int EARTH = 3;
 
     // Moon - 1200 units is well within Earth's Hill sphere (~3000 units)
-    float moonDist = 1200.0f;
-    float moonVel = std::sqrt(bodies_[1].mu / moonDist);
-    bodies_.push_back({{earthDist + moonDist, 0}, {0, earthVel + moonVel}, 100.0f, 50.0f, G * 100.0f, {0.7f, 0.7f, 0.7f, 1.0f}});
+    float moonColor[4] = {0.7f, 0.7f, 0.7f, 1.0f};
+    makeMoon(EARTH, 1200.0f, 100.0f, 50.0f, moonColor);   // index 4: Moon
+
+    makePlanet(30500.0f, 1100.0f, 110.0f, marsColor);     // index 5: Mars
+    const int MARS = 5;
+
+    // Mars moons. Distances are exaggerated for visibility (Phobos inside Deimos);
+    // both stay well within Mars's Hill sphere (~2100 units at this orbit).
+    float phobosColor[4] = {0.6f, 0.55f, 0.5f, 1.0f};
+    float deimosColor[4] = {0.65f, 0.6f, 0.55f, 1.0f};
+    makeMoon(MARS, 600.0f,  1.0f, 14.0f, phobosColor);    // index 6: Phobos
+    makeMoon(MARS, 1300.0f, 0.5f, 10.0f, deimosColor);    // index 7: Deimos
 
     // Ship - start orbiting Earth stably
     float shipDist = 350.0f;
-    float shipRelVel = std::sqrt(bodies_[1].mu / shipDist);
+    float shipRelVel = std::sqrt(bodies_[EARTH].mu / shipDist);
     ship_.pos = {earthDist + shipDist, 0};
     ship_.vel = {0, earthVel + shipRelVel};
     ship_.angle = 0.0f;
