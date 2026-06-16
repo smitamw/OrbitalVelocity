@@ -3,8 +3,9 @@
 
 #include <EGL/egl.h>
 #include <memory>
+#include <string>
+#include <vector>
 
-#include "Model.h"
 #include "Shader.h"
 #include "Game.h"
 

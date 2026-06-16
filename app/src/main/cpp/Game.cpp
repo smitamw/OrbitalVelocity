@@ -11,7 +11,7 @@ Game::Game() : zoom_(0.01f), throttle_(0.0f), joystick_({0, 0}) {
     float earthVel = std::sqrt(bodies_[0].mu / earthDist);
     bodies_.push_back({{earthDist, 0}, {0, earthVel}, 10000.0f, 200.0f, G * 10000.0f, {0.2f, 0.6f, 1.0f, 1.0f}});
 
-    // Moon - 600 units is well within Earth's Hill sphere (~1500 units)
+    // Moon - 1200 units is well within Earth's Hill sphere (~3000 units)
     float moonDist = 1200.0f;
     float moonVel = std::sqrt(bodies_[1].mu / moonDist);
     bodies_.push_back({{earthDist + moonDist, 0}, {0, earthVel + moonVel}, 100.0f, 50.0f, G * 100.0f, {0.7f, 0.7f, 0.7f, 1.0f}});
