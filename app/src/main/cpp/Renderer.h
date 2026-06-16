@@ -56,6 +56,7 @@ private:
     void drawCircle(Vec2 center, float radius, int segments, float color[4]);
     void drawPolygon(const std::vector<Vec2>& points, float color[4]);
     void drawOrbit(Vec2 pos, Vec2 vel, const CelestialBody& primary, float mu, float color[4]);
+    void drawText(const std::string& text, Vec2 pos, float size, float color[4]);
 
     android_app *app_;
     EGLDisplay display_;

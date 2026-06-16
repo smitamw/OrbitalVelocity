@@ -29,6 +29,9 @@ static const float ZOOM_X_MAX_OFFSET = 0.25f;
 static const float ZOOM_Y_MIN = -0.8f;
 static const float ZOOM_Y_MAX = 0.8f;
 
+static const float MIN_ZOOM = 0.00001f;
+static const float MAX_ZOOM_FACTOR = 1000000.0f;
+
 static const char *vertex = R"vertex(#version 300 es
 in vec3 inPosition;
 uniform mat4 uMVP;
@@ -124,6 +127,80 @@ void Renderer::drawCircle(Vec2 center, float radius, int segments, float color[4
         points.push_back({center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius});
     }
     drawPolygon(points, color);
+}
+
+void Renderer::drawText(const std::string& text, Vec2 pos, float size, float color[4]) {
+    float x = pos.x;
+    float y = pos.y;
+    float charW = size * 0.6f;
+    float charH = size;
+    float thickness = size * 0.2f;
+
+    auto drawRect = [&](float rx, float ry, float rw, float rh) {
+        drawPolygon({{rx, ry}, {rx + rw, ry}, {rx + rw, ry + rh}, {rx, ry + rh}}, color);
+    };
+
+    for (char c : text) {
+        switch (c) {
+            case 'T':
+                drawRect(x, y + charH - thickness, charW, thickness); // Top
+                drawRect(x + charW/2 - thickness/2, y, thickness, charH); // Stem
+                break;
+            case 'H':
+                drawRect(x, y, thickness, charH); // Left
+                drawRect(x + charW - thickness, y, thickness, charH); // Right
+                drawRect(x, y + charH/2 - thickness/2, charW, thickness); // Middle
+                break;
+            case 'R':
+                drawRect(x, y, thickness, charH); // Left
+                drawRect(x, y + charH - thickness, charW, thickness); // Top
+                drawRect(x, y + charH/2 - thickness/2, charW, thickness); // Mid
+                drawRect(x + charW - thickness, y + charH/2, thickness, charH/2); // Top right
+                drawRect(x + charW - thickness, y, thickness, charH/2); // Bottom right leg (simplified)
+                break;
+            case 'O':
+                drawRect(x, y, thickness, charH); // Left
+                drawRect(x + charW - thickness, y, thickness, charH); // Right
+                drawRect(x, y, charW, thickness); // Bottom
+                drawRect(x, y + charH - thickness, charW, thickness); // Top
+                break;
+            case 'L':
+                drawRect(x, y, thickness, charH); // Left
+                drawRect(x, y, charW, thickness); // Bottom
+                break;
+            case 'E':
+                drawRect(x, y, thickness, charH); // Left
+                drawRect(x, y, charW, thickness); // Bottom
+                drawRect(x, y + charH/2 - thickness/2, charW * 0.8f, thickness); // Middle
+                drawRect(x, y + charH - thickness, charW, thickness); // Top
+                break;
+            case 'Z':
+                drawRect(x, y, charW, thickness); // Bottom
+                drawRect(x, y + charH - thickness, charW, thickness); // Top
+                // Diagonal simplified to a box for brevity
+                drawRect(x + charW/2 - thickness/2, y, thickness, charH);
+                break;
+            case 'M':
+                drawRect(x, y, thickness, charH); // Left
+                drawRect(x + charW - thickness, y, thickness, charH); // Right
+                drawRect(x, y + charH - thickness, charW, thickness); // Top
+                drawRect(x + charW/2 - thickness/2, y + charH/2, thickness, charH/2); // Middle
+                break;
+            case 'J':
+                drawRect(x + charW - thickness, y, thickness, charH); // Stem
+                drawRect(x, y, charW, thickness); // Bottom
+                drawRect(x, y, thickness, charH/2); // Hook
+                break;
+            case 'I':
+                drawRect(x + charW/2 - thickness/2, y, thickness, charH);
+                break;
+            case 'S':
+                drawRect(x, y + charH - thickness, charW, thickness); // Top
+                drawRect(x, y + charH/2 - thickness/2, charW, thickness); // Middle
+                break;
+        }
+        x += charW + thickness;
+    }
 }
 
 void Renderer::drawOrbit(Vec2 pos, Vec2 vel, const CelestialBody& primary, float mu, float color[4]) {
@@ -289,12 +366,16 @@ void Renderer::render() {
     float zx2 = aspect - ZOOM_X_MIN_OFFSET;
     drawPolygon({{zx1, ZOOM_Y_MIN}, {zx2, ZOOM_Y_MIN}, {zx2, ZOOM_Y_MAX}, {zx1, ZOOM_Y_MAX}}, uiColor);
     // Indicator for current zoom
-    float minZoom = 0.0005f;
-    float maxZoomFactor = 500000.0f;
-    float zLevel = (std::log10(game_.getZoom() / minZoom)) / std::log10(maxZoomFactor);
+    float zLevel = (std::log10(game_.getZoom() / MIN_ZOOM)) / std::log10(MAX_ZOOM_FACTOR);
     zLevel = std::max(0.0f, std::min(1.0f, zLevel));
     float zPos = ZOOM_Y_MIN + (ZOOM_Y_MAX - ZOOM_Y_MIN) * zLevel;
     drawPolygon({{zx1, zPos - 0.05f}, {zx2, zPos - 0.05f}, {zx2, zPos + 0.05f}, {zx1, zPos + 0.05f}}, activeColor);
+
+    // Labels
+    float textColor[4] = {1, 1, 1, 0.4f};
+    drawText("THR", {-aspect + THROTTLE_X_MIN_OFFSET, THROTTLE_Y_MAX + 0.02f}, 0.05f, textColor);
+    drawText("JOY", {joyCenter.x - 0.08f, joyCenter.y - JOYSTICK_RADIUS - 0.08f}, 0.05f, textColor);
+    drawText("ZOOM", {aspect - ZOOM_X_MAX_OFFSET, ZOOM_Y_MAX + 0.02f}, 0.05f, textColor);
 
     eglSwapBuffers(display_, surface_);
 }
@@ -345,9 +426,7 @@ void Renderer::handleInput() {
             if (x >= zx1 && x <= zx2 && y >= ZOOM_Y_MIN && y <= ZOOM_Y_MAX) {
                 if (!isUp) {
                     float z = (y - ZOOM_Y_MIN) / (ZOOM_Y_MAX - ZOOM_Y_MIN);
-                    float minZoom = 0.00001f;
-                    float maxZoomFactor = 100000.0f;
-                    game_.setZoom(minZoom * std::pow(maxZoomFactor, std::max(0.0f, std::min(1.0f, z))));
+                    game_.setZoom(MIN_ZOOM * std::pow(MAX_ZOOM_FACTOR, std::max(0.0f, std::min(1.0f, z))));
                 }
             }
         }
