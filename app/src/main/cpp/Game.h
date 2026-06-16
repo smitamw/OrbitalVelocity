@@ -13,6 +13,8 @@ struct CelestialBody {
     float color[4];
 };
 
+enum class CameraMode { Ship, Body };
+
 struct Ship {
     Vec2 pos;
     Vec2 vel;
@@ -38,6 +40,11 @@ public:
 
     float getZoom() const { return zoom_; }
 
+    CameraMode getCameraMode() const { return cameraMode_; }
+    void toggleCameraMode() {
+        cameraMode_ = (cameraMode_ == CameraMode::Ship) ? CameraMode::Body : CameraMode::Ship;
+    }
+
 private:
     std::vector<CelestialBody> bodies_;
     Ship ship_;
@@ -45,6 +52,7 @@ private:
     Vec2 joystick_;
     float throttle_;
     float zoom_;
+    CameraMode cameraMode_ = CameraMode::Ship;
 
     const float G = 1000.0f; // Scaled gravitational constant
 };

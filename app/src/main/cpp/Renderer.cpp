@@ -32,6 +32,9 @@ static const float ZOOM_Y_MAX = 0.8f;
 static const float MIN_ZOOM = 0.00001f;
 static const float MAX_ZOOM_FACTOR = 1000000.0f;
 
+static const float CAM_BTN_CENTER_Y = 0.82f; // top-center
+static const float CAM_BTN_HALF = 0.08f;     // half side length (small square)
+
 static const char *vertex = R"vertex(#version 300 es
 in vec3 inPosition;
 uniform mat4 uMVP;
@@ -205,6 +208,11 @@ void Renderer::drawText(const std::string& text, Vec2 pos, float size, float col
             case 'Y': drawLine(0, 1, 0.5f, 0.5f); drawLine(1, 1, 0.5f, 0.5f); drawLine(0.5f, 0.5f, 0.5f, 0); break;
             case 'Z': drawLine(0, 1, 1, 1); drawLine(1, 1, 0, 0); drawLine(0, 0, 1, 0); break;
             case 'M': drawLine(0, 0, 0, 1); drawLine(0, 1, 0.5f, 0.5f); drawLine(0.5f, 0.5f, 1, 1); drawLine(1, 1, 1, 0); break;
+            case 'S': drawLine(0, 1, 1, 1); drawLine(0, 1, 0, 0.5f); drawLine(0, 0.5f, 1, 0.5f); drawLine(1, 0.5f, 1, 0); drawLine(1, 0, 0, 0); break;
+            case 'I': drawLine(0.5f, 0, 0.5f, 1); drawLine(0.2f, 1, 0.8f, 1); drawLine(0.2f, 0, 0.8f, 0); break;
+            case 'P': drawLine(0, 0, 0, 1); drawLine(0, 1, 1, 1); drawLine(1, 1, 1, 0.5f); drawLine(1, 0.5f, 0, 0.5f); break;
+            case 'B': drawLine(0, 0, 0, 1); drawLine(0, 1, 1, 1); drawLine(1, 1, 1, 0.5f); drawLine(0, 0.5f, 1, 0.5f); drawLine(1, 0.5f, 1, 0); drawLine(0, 0, 1, 0); break;
+            case 'D': drawLine(0, 0, 0, 1); drawLine(0, 1, 0.7f, 1); drawLine(0.7f, 1, 1, 0.5f); drawLine(1, 0.5f, 0.7f, 0); drawLine(0.7f, 0, 0, 0); break;
         }
         x += charW + gap;
     }
@@ -228,14 +236,30 @@ void Renderer::render() {
     float aspect = float(width_) / height_;
     float zoom = game_.getZoom();
     const Ship& ship = game_.getShip();
-    Vec2 shipPos = ship.pos;
+    const auto& bodies = game_.getBodies();
+
+    // Determine the dominant gravitational body (the one the ship's conic is drawn around)
+    float dominantWeight = -1.0f;
+    const CelestialBody* primary = nullptr;
+    for (const auto& body : bodies) {
+        Vec2 r = body.pos - ship.pos;
+        float weight = body.mu / r.lengthSq();
+        if (weight > dominantWeight) {
+            dominantWeight = weight;
+            primary = &body;
+        }
+    }
+
+    // Camera center depends on the selected mode
+    Vec2 camCenter = ship.pos;
+    if (game_.getCameraMode() == CameraMode::Body && primary) camCenter = primary->pos;
 
     auto setMVP = [&](Vec2 pos, float scale, float angle) {
         float m[16];
         Utility::buildIdentityMatrix(m);
         float viewScaleX = zoom / aspect;
         float viewScaleY = zoom;
-        Vec2 relPos = pos - shipPos;
+        Vec2 relPos = pos - camCenter;
         float cosA = std::cos(angle);
         float sinA = std::sin(angle);
         m[0] = (cosA * scale) * viewScaleX;
@@ -252,11 +276,9 @@ void Renderer::render() {
     Utility::buildIdentityMatrix(globalMVP);
     globalMVP[0] = zoom / aspect;
     globalMVP[5] = zoom;
-    globalMVP[12] = -shipPos.x * zoom / aspect;
-    globalMVP[13] = -shipPos.y * zoom;
+    globalMVP[12] = -camCenter.x * zoom / aspect;
+    globalMVP[13] = -camCenter.y * zoom;
     shader_->setMVP(globalMVP);
-
-    const auto& bodies = game_.getBodies();
 
     // Draw Planet Orbits
     float planetOrbitColor[4] = {1, 1, 1, 0.15f};
@@ -264,16 +286,6 @@ void Renderer::render() {
     if (bodies.size() >= 3) drawOrbit(bodies[2].pos, bodies[2].vel, bodies[1], bodies[1].mu, planetOrbitColor);
 
     // Draw Ship Orbit
-    float dominantWeight = -1.0f;
-    const CelestialBody* primary = nullptr;
-    for (const auto& body : bodies) {
-        Vec2 r = body.pos - ship.pos;
-        float weight = body.mu / r.lengthSq();
-        if (weight > dominantWeight) {
-            dominantWeight = weight;
-            primary = &body;
-        }
-    }
     if (primary) {
         float shipOrbitColor[4] = {1, 1, 1, 0.5f};
         drawOrbit(ship.pos, ship.vel, *primary, primary->mu, shipOrbitColor);
@@ -328,6 +340,24 @@ void Renderer::render() {
     drawText("JOY", {joyCenter.x - 0.1f, joyCenter.y - JOYSTICK_RADIUS - 0.1f}, 0.05f, textColor);
     drawText("ZOOM", {aspect - ZOOM_X_MAX_OFFSET, ZOOM_Y_MAX + 0.03f}, 0.05f, textColor);
 
+    // Camera mode button (top-center, translucent square with a camera icon)
+    float bx1 = -CAM_BTN_HALF, bx2 = CAM_BTN_HALF;
+    float by1 = CAM_BTN_CENTER_Y - CAM_BTN_HALF, by2 = CAM_BTN_CENTER_Y + CAM_BTN_HALF;
+    drawPolygon({{bx1, by1}, {bx2, by1}, {bx2, by2}, {bx1, by2}}, uiColor);
+
+    // Camera icon: body rectangle, viewfinder bump, and lens
+    float iconW = CAM_BTN_HALF * 0.62f;  // half-width of camera body
+    float iconH = CAM_BTN_HALF * 0.42f;  // half-height of camera body
+    float cy = CAM_BTN_CENTER_Y;
+    drawPolygon({{-iconW, cy - iconH}, {iconW, cy - iconH}, {iconW, cy + iconH}, {-iconW, cy + iconH}}, activeColor);
+    float bumpW = CAM_BTN_HALF * 0.18f;
+    drawPolygon({{-bumpW, cy + iconH}, {bumpW, cy + iconH}, {bumpW, cy + iconH + CAM_BTN_HALF * 0.16f}, {-bumpW, cy + iconH + CAM_BTN_HALF * 0.16f}}, activeColor);
+    drawCircle({0, cy}, CAM_BTN_HALF * 0.26f, 24, uiColor);
+
+    // Mode label above the button
+    const char *modeLabel = game_.getCameraMode() == CameraMode::Ship ? "SHIP" : "BODY";
+    drawText(modeLabel, {-0.1f, by2 + 0.03f}, 0.05f, textColor);
+
     eglSwapBuffers(display_, surface_);
 }
 
@@ -347,6 +377,13 @@ void Renderer::handleInput() {
             float y = -(GameActivityPointerAxes_getY(&motionEvent.pointers[p]) / height_ * 2.0f - 1.0f);
 
             bool isUp = (action == AMOTION_EVENT_ACTION_UP || action == AMOTION_EVENT_ACTION_POINTER_UP) && (p == pointerIndex);
+            bool isDown = (action == AMOTION_EVENT_ACTION_DOWN || action == AMOTION_EVENT_ACTION_POINTER_DOWN) && (p == pointerIndex);
+
+            // Camera mode button (top-center): toggle on tap
+            if (isDown && x >= -CAM_BTN_HALF && x <= CAM_BTN_HALF &&
+                y >= CAM_BTN_CENTER_Y - CAM_BTN_HALF && y <= CAM_BTN_CENTER_Y + CAM_BTN_HALF) {
+                game_.toggleCameraMode();
+            }
 
             // Joystick Logic
             Vec2 joyCenter = {-aspect + JOYSTICK_CENTER_X_OFFSET, JOYSTICK_CENTER_Y};
