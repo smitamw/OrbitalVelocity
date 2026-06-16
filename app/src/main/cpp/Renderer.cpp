@@ -129,80 +129,6 @@ void Renderer::drawCircle(Vec2 center, float radius, int segments, float color[4
     drawPolygon(points, color);
 }
 
-void Renderer::drawText(const std::string& text, Vec2 pos, float size, float color[4]) {
-    float x = pos.x;
-    float y = pos.y;
-    float charW = size * 0.6f;
-    float charH = size;
-    float thickness = size * 0.2f;
-
-    auto drawRect = [&](float rx, float ry, float rw, float rh) {
-        drawPolygon({{rx, ry}, {rx + rw, ry}, {rx + rw, ry + rh}, {rx, ry + rh}}, color);
-    };
-
-    for (char c : text) {
-        switch (c) {
-            case 'T':
-                drawRect(x, y + charH - thickness, charW, thickness); // Top
-                drawRect(x + charW/2 - thickness/2, y, thickness, charH); // Stem
-                break;
-            case 'H':
-                drawRect(x, y, thickness, charH); // Left
-                drawRect(x + charW - thickness, y, thickness, charH); // Right
-                drawRect(x, y + charH/2 - thickness/2, charW, thickness); // Middle
-                break;
-            case 'R':
-                drawRect(x, y, thickness, charH); // Left
-                drawRect(x, y + charH - thickness, charW, thickness); // Top
-                drawRect(x, y + charH/2 - thickness/2, charW, thickness); // Mid
-                drawRect(x + charW - thickness, y + charH/2, thickness, charH/2); // Top right
-                drawRect(x + charW - thickness, y, thickness, charH/2); // Bottom right leg (simplified)
-                break;
-            case 'O':
-                drawRect(x, y, thickness, charH); // Left
-                drawRect(x + charW - thickness, y, thickness, charH); // Right
-                drawRect(x, y, charW, thickness); // Bottom
-                drawRect(x, y + charH - thickness, charW, thickness); // Top
-                break;
-            case 'L':
-                drawRect(x, y, thickness, charH); // Left
-                drawRect(x, y, charW, thickness); // Bottom
-                break;
-            case 'E':
-                drawRect(x, y, thickness, charH); // Left
-                drawRect(x, y, charW, thickness); // Bottom
-                drawRect(x, y + charH/2 - thickness/2, charW * 0.8f, thickness); // Middle
-                drawRect(x, y + charH - thickness, charW, thickness); // Top
-                break;
-            case 'Z':
-                drawRect(x, y, charW, thickness); // Bottom
-                drawRect(x, y + charH - thickness, charW, thickness); // Top
-                // Diagonal simplified to a box for brevity
-                drawRect(x + charW/2 - thickness/2, y, thickness, charH);
-                break;
-            case 'M':
-                drawRect(x, y, thickness, charH); // Left
-                drawRect(x + charW - thickness, y, thickness, charH); // Right
-                drawRect(x, y + charH - thickness, charW, thickness); // Top
-                drawRect(x + charW/2 - thickness/2, y + charH/2, thickness, charH/2); // Middle
-                break;
-            case 'J':
-                drawRect(x + charW - thickness, y, thickness, charH); // Stem
-                drawRect(x, y, charW, thickness); // Bottom
-                drawRect(x, y, thickness, charH/2); // Hook
-                break;
-            case 'I':
-                drawRect(x + charW/2 - thickness/2, y, thickness, charH);
-                break;
-            case 'S':
-                drawRect(x, y + charH - thickness, charW, thickness); // Top
-                drawRect(x, y + charH/2 - thickness/2, charW, thickness); // Middle
-                break;
-        }
-        x += charW + thickness;
-    }
-}
-
 void Renderer::drawOrbit(Vec2 pos, Vec2 vel, const CelestialBody& primary, float mu, float color[4]) {
     Vec2 r = pos - primary.pos;
     Vec2 v = vel - primary.vel;
@@ -251,6 +177,37 @@ void Renderer::drawOrbit(Vec2 pos, Vec2 vel, const CelestialBody& primary, float
     glVertexAttribPointer(shader_->getPositionLocation(), 3, GL_FLOAT, GL_FALSE, 0, orbitVertices.data());
     glEnableVertexAttribArray(shader_->getPositionLocation());
     glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)orbitVertices.size() / 3);
+}
+
+// Minimalistic but clean 5x7 vector font
+void Renderer::drawText(const std::string& text, Vec2 pos, float size, float color[4]) {
+    float x = pos.x;
+    float y = pos.y;
+    float charW = size * 0.7f;
+    float charH = size;
+    float gap = size * 0.2f;
+
+    auto drawLine = [&](float x1, float y1, float x2, float y2) {
+        std::vector<float> v = { x + x1*charW, y + y1*charH, 0.0f, x + x2*charW, y + y2*charH, 0.0f };
+        shader_->setColor(color);
+        glVertexAttribPointer(shader_->getPositionLocation(), 3, GL_FLOAT, GL_FALSE, 0, v.data());
+        glEnableVertexAttribArray(shader_->getPositionLocation());
+        glDrawArrays(GL_LINES, 0, 2);
+    };
+
+    for (char c : text) {
+        switch (c) {
+            case 'T': drawLine(0, 1, 1, 1); drawLine(0.5f, 1, 0.5f, 0); break;
+            case 'H': drawLine(0, 0, 0, 1); drawLine(1, 0, 1, 1); drawLine(0, 0.5f, 1, 0.5f); break;
+            case 'R': drawLine(0, 0, 0, 1); drawLine(0, 1, 1, 1); drawLine(1, 1, 1, 0.5f); drawLine(1, 0.5f, 0, 0.5f); drawLine(0.5f, 0.5f, 1, 0); break;
+            case 'J': drawLine(0, 0.2f, 0.5f, 0); drawLine(0.5f, 0, 1, 0); drawLine(1, 0, 1, 1); break;
+            case 'O': drawLine(0, 0, 1, 0); drawLine(1, 0, 1, 1); drawLine(1, 1, 0, 1); drawLine(0, 1, 0, 0); break;
+            case 'Y': drawLine(0, 1, 0.5f, 0.5f); drawLine(1, 1, 0.5f, 0.5f); drawLine(0.5f, 0.5f, 0.5f, 0); break;
+            case 'Z': drawLine(0, 1, 1, 1); drawLine(1, 1, 0, 0); drawLine(0, 0, 1, 0); break;
+            case 'M': drawLine(0, 0, 0, 1); drawLine(0, 1, 0.5f, 0.5f); drawLine(0.5f, 0.5f, 1, 1); drawLine(1, 1, 1, 0); break;
+        }
+        x += charW + gap;
+    }
 }
 
 void Renderer::render() {
@@ -303,14 +260,8 @@ void Renderer::render() {
 
     // Draw Planet Orbits
     float planetOrbitColor[4] = {1, 1, 1, 0.15f};
-    // Earth around Sun
-    if (bodies.size() >= 2) {
-        drawOrbit(bodies[1].pos, bodies[1].vel, bodies[0], bodies[0].mu, planetOrbitColor);
-    }
-    // Moon around Earth
-    if (bodies.size() >= 3) {
-        drawOrbit(bodies[2].pos, bodies[2].vel, bodies[1], bodies[1].mu, planetOrbitColor);
-    }
+    if (bodies.size() >= 2) drawOrbit(bodies[1].pos, bodies[1].vel, bodies[0], bodies[0].mu, planetOrbitColor);
+    if (bodies.size() >= 3) drawOrbit(bodies[2].pos, bodies[2].vel, bodies[1], bodies[1].mu, planetOrbitColor);
 
     // Draw Ship Orbit
     float dominantWeight = -1.0f;
@@ -372,10 +323,10 @@ void Renderer::render() {
     drawPolygon({{zx1, zPos - 0.05f}, {zx2, zPos - 0.05f}, {zx2, zPos + 0.05f}, {zx1, zPos + 0.05f}}, activeColor);
 
     // Labels
-    float textColor[4] = {1, 1, 1, 0.4f};
-    drawText("THR", {-aspect + THROTTLE_X_MIN_OFFSET, THROTTLE_Y_MAX + 0.02f}, 0.05f, textColor);
-    drawText("JOY", {joyCenter.x - 0.08f, joyCenter.y - JOYSTICK_RADIUS - 0.08f}, 0.05f, textColor);
-    drawText("ZOOM", {aspect - ZOOM_X_MAX_OFFSET, ZOOM_Y_MAX + 0.02f}, 0.05f, textColor);
+    float textColor[4] = {1, 1, 1, 0.5f};
+    drawText("THR", {-aspect + THROTTLE_X_MIN_OFFSET, THROTTLE_Y_MAX + 0.03f}, 0.05f, textColor);
+    drawText("JOY", {joyCenter.x - 0.1f, joyCenter.y - JOYSTICK_RADIUS - 0.1f}, 0.05f, textColor);
+    drawText("ZOOM", {aspect - ZOOM_X_MAX_OFFSET, ZOOM_Y_MAX + 0.03f}, 0.05f, textColor);
 
     eglSwapBuffers(display_, surface_);
 }
