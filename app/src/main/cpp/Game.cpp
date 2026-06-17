@@ -2,7 +2,7 @@
 #include <cmath>
 #include <algorithm>
 
-Game::Game() : zoom_(0.01f), throttle_(0.0f), joystick_({0, 0}) {
+Game::Game() : zoom_(0.02f), throttle_(0.0f), joystick_({0, 0}) {
     // Helper: a planet in a circular heliocentric orbit at `dist` from the Sun.
     auto makePlanet = [&](float dist, float mass, float radius, float color[4]) {
         float vel = std::sqrt(bodies_[0].mu / dist); // index 0 is always the Sun
@@ -97,16 +97,35 @@ Game::Game() : zoom_(0.01f), throttle_(0.0f), joystick_({0, 0}) {
     makeMoon(NEPTUNE, 2000.0f,  6.0f, 16.0f, proteusColor);
     makeMoon(NEPTUNE, 6000.0f, 40.0f, 45.0f, tritonColor);
 
-    // Ship - start orbiting Earth stably
-    float shipDist = 350.0f;
-    float shipRelVel = std::sqrt(bodies_[EARTH].mu / shipDist);
-    ship_.pos = {earthDist + shipDist, 0};
-    ship_.vel = {0, earthVel + shipRelVel};
+    // Ship - placed landed on Earth, ready to launch. The triangle is the default until the
+    // player picks another in the Customize screen.
+    startWithShip(ShipType::Triangle);
+}
+
+void Game::startWithShip(ShipType type) {
+    // Earth is index 3 (see constructor). Rest the ship on its surface, sharing Earth's
+    // orbital velocity so it stays put, with the nose pointing radially outward (+x here,
+    // away from Earth) so full throttle lifts it straight off the ground.
+    const CelestialBody& earth = bodies_[3];
+    Vec2 outward = {1.0f, 0.0f};
+    ship_.pos = earth.pos + outward * earth.radius;
+    ship_.vel = earth.vel;
     ship_.angle = 0.0f;
     ship_.throttle = 0.0f;
-    ship_.thrust = 120.0f;
+    throttle_ = 0.0f;
+    joystick_ = {0, 0};
     ship_.mass = 1.0f;
+    // All ships get the same thrust. Earth's surface gravity is mu/r^2 = 250; 350 gives a
+    // thrust-to-weight ratio of ~1.4, enough for every variant to take off.
+    ship_.thrust = 350.0f;
     ship_.color[0] = 1.0f; ship_.color[1] = 1.0f; ship_.color[2] = 1.0f; ship_.color[3] = 1.0f;
+
+    ship_.type = type;
+    switch (type) {
+        case ShipType::Triangle: ship_.infiniteFuel = false; ship_.maxFuel = ship_.fuel = 12.0f; break;  // low
+        case ShipType::Rocket:   ship_.infiniteFuel = false; ship_.maxFuel = ship_.fuel = 35.0f; break;  // medium
+        case ShipType::Falcon:   ship_.infiniteFuel = true;  ship_.maxFuel = ship_.fuel = 1.0f;  break;  // infinite
+    }
 }
 
 void Game::update(float dt) {
@@ -116,11 +135,17 @@ void Game::update(float dt) {
         ship_.angle = std::atan2(joystick_.y, joystick_.x);
     }
 
-    // Using more sub-steps for planetary stability
-    int steps = 20;
-    float subDt = dt / steps;
+    // Using more sub-steps for planetary stability. Timewarp keeps the per-substep
+    // duration constant (so integration accuracy is unchanged) and instead runs more
+    // substeps per frame, simulating timeWarp_ * dt seconds each frame.
+    int baseSteps = 20;
+    float subDt = dt / baseSteps;
+    int totalSteps = baseSteps * timeWarp_;
 
-    for (int s = 0; s < steps; ++s) {
+    // Thrust is disabled while warping (timeWarp_ > 1); the ship coasts on rails.
+    float effThrottle = (timeWarp_ > 1) ? 0.0f : throttle_;
+
+    for (int s = 0; s < totalSteps; ++s) {
         Vec2 totalAcc = {0, 0};
         for (auto& body : bodies_) {
             Vec2 r = body.pos - ship_.pos;
@@ -143,8 +168,20 @@ void Game::update(float dt) {
             }
         }
 
+        // Fuel: a finite-fuel ship can only thrust while it has fuel, and burning it draws
+        // the tank down proportionally to throttle. The Falcon (infiniteFuel) never depletes.
+        float stepThrottle = effThrottle;
+        if (!ship_.infiniteFuel) {
+            if (ship_.fuel <= 0.0f) {
+                ship_.fuel = 0.0f;
+                stepThrottle = 0.0f;
+            } else {
+                ship_.fuel = std::max(0.0f, ship_.fuel - stepThrottle * subDt);
+            }
+        }
+
         Vec2 thrustDir = {std::cos(ship_.angle), std::sin(ship_.angle)};
-        totalAcc += thrustDir * (ship_.thrust * throttle_ / ship_.mass);
+        totalAcc += thrustDir * (ship_.thrust * stepThrottle / ship_.mass);
 
         ship_.vel += totalAcc * subDt;
         ship_.pos += ship_.vel * subDt;
