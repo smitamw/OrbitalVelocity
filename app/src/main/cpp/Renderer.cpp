@@ -16,8 +16,8 @@
 // UI Layout Constants
 // Combined floating joystick: it spawns wherever the finger touches. Heading comes from the
 // drag direction; throttle from the drag distance (past a small deadzone, up to a max reach).
-static const float JOY_TOLERANCE    = 0.04f; // deadzone radius: throttle stays 0 within this
-static const float JOY_MAX_RANGE    = 0.28f; // drag distance for full throttle
+static const float JOY_TOLERANCE    = 0.1f; // deadzone radius: throttle stays 0 within this
+static const float JOY_MAX_RANGE    = 0.3f; // drag distance for full throttle
 static const float JOY_DIR_DEADZONE = 0.02f; // min drag before heading updates
 static const float JOY_KNOB_RADIUS  = 0.05f; // rendered knob size
 
@@ -30,7 +30,7 @@ static const float FUEL_Y_MAX = 0.5f;
 
 // HUD auto-fade: the in-game controls stay fully opaque until HUD_FADE_START seconds of
 // inactivity, then fade out over HUD_FADE_DUR seconds. Any touch resets the timer.
-static const float HUD_FADE_START = 10.0f;
+static const float HUD_FADE_START = 5.0f;
 static const float HUD_FADE_DUR = 1.0f;
 
 // Timewarp buttons: a row of 5 small squares in the bottom-left (below the joystick),
