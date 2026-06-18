@@ -5,6 +5,7 @@
 #include <vector>
 #include <time.h>
 #include <algorithm>
+#include <cstdint>
 #include "AndroidOut.h"
 #include "Shader.h"
 #include "Utility.h"
@@ -297,31 +298,70 @@ void Renderer::setUIMVP(Vec2 pos, float scale, float angle) {
     shader_->setMVP(m);
 }
 
+// Cheap per-call pseudo-random float in [0,1) (xorshift32). Used only for exhaust flicker,
+// so the quality/seeding doesn't matter; it just needs to vary every frame.
+static float flickerRand() {
+    static uint32_t s = 2463534242u;
+    s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+    return (s & 0xFFFFFFu) / float(0x1000000);
+}
+
 // Draws a ship's local-space geometry. All variants point +x (nose forward), matching the
 // original triangle, so the same shape works in-world (via setMVP) and in menu previews
 // (via setUIMVP). The caller sets the MVP first.
-void Renderer::drawShipShape(ShipType type, float alpha) {
+//
+// `thrust` is the ship's current thrust as a fraction of full (0..1). When it's >0 the ship
+// emits an exhaust plume — unique in size/shape/color per variant — whose length and brightness
+// scale with thrust and flicker slightly every frame. Menu previews pass 0 (no flame).
+void Renderer::drawShipShape(ShipType type, float alpha, float thrust) {
+    // Per-frame flame modulation. lenF drives plume length, bright drives opacity; each gets an
+    // independent random jitter so the two flicker separately, like a real exhaust.
+    const bool flaming = thrust > 0.0f;
+    const float lenF   = thrust * (0.9f + 0.2f * flickerRand());
+    const float bright = alpha * std::min(1.0f, (0.55f + 0.45f * thrust) * (0.85f + 0.15f * flickerRand()));
+
     switch (type) {
         case ShipType::Triangle: {
+            // Red, narrow, long single-point plume from the flat rear edge at x=-0.6.
+            if (flaming) {
+                float outer[4] = {1.00f, 0.20f, 0.08f, bright};
+                float core[4]  = {1.00f, 0.55f, 0.20f, bright};
+                drawPolygon({{-0.6f, 0.22f}, {-0.6f - 0.7f * lenF, 0.0f}, {-0.6f, -0.22f}}, outer);
+                drawPolygon({{-0.6f, 0.11f}, {-0.6f - 0.55f * lenF, 0.0f}, {-0.6f, -0.11f}}, core);
+            }
             float white[4] = {1, 1, 1, alpha};
             drawPolygon({{1, 0}, {-0.6f, 0.4f}, {-0.6f, -0.4f}}, white);
             break;
         }
         case ShipType::Rocket: {
+            // Orange, medium plume with a yellow-white core, from the fuselage tail at x=-0.6.
+            if (flaming) {
+                float outer[4] = {1.00f, 0.50f, 0.08f, bright};
+                float core[4]  = {1.00f, 0.85f, 0.45f, bright};
+                drawPolygon({{-0.6f, 0.18f}, {-0.6f - 0.6f * lenF, 0.0f}, {-0.6f, -0.18f}}, outer);
+                drawPolygon({{-0.6f, 0.09f}, {-0.6f - 0.4f * lenF, 0.0f}, {-0.6f, -0.09f}}, core);
+            }
             float body[4]  = {0.95f, 0.95f, 1.0f, alpha};
             float nose[4]  = {0.90f, 0.30f, 0.25f, alpha};
             float fin[4]   = {0.85f, 0.25f, 0.20f, alpha};
-            float flame[4] = {1.00f, 0.70f, 0.10f, alpha};
             float win[4]   = {0.40f, 0.70f, 1.00f, alpha};
             drawPolygon({{-0.6f, 0.28f}, {0.45f, 0.28f}, {0.45f, -0.28f}, {-0.6f, -0.28f}}, body); // fuselage
             drawPolygon({{0.45f, 0.28f}, {1.0f, 0.0f}, {0.45f, -0.28f}}, nose);                    // nose cone
             drawPolygon({{-0.6f, 0.28f}, {-0.95f, 0.55f}, {-0.45f, 0.28f}}, fin);                  // top fin
             drawPolygon({{-0.6f, -0.28f}, {-0.95f, -0.55f}, {-0.45f, -0.28f}}, fin);               // bottom fin
-            drawPolygon({{-0.6f, 0.18f}, {-1.0f, 0.0f}, {-0.6f, -0.18f}}, flame);                  // exhaust
             drawCircle({0.05f, 0.0f}, 0.16f, 20, win);                                             // porthole
             break;
         }
         case ShipType::Falcon: {
+            // Blue, wide & short engine glow (a flat trapezoid, not a point) from the saucer rear.
+            if (flaming) {
+                float outer[4] = {0.35f, 0.55f, 1.00f, bright};
+                float core[4]  = {0.70f, 0.85f, 1.00f, bright};
+                drawPolygon({{-0.70f, 0.45f}, {-0.70f - 0.35f * lenF, 0.18f},
+                             {-0.70f - 0.35f * lenF, -0.18f}, {-0.70f, -0.45f}}, outer);
+                drawPolygon({{-0.70f, 0.26f}, {-0.70f - 0.28f * lenF, 0.10f},
+                             {-0.70f - 0.28f * lenF, -0.10f}, {-0.70f, -0.26f}}, core);
+            }
             float hull[4]    = {0.70f, 0.72f, 0.75f, alpha};
             float dish[4]    = {0.55f, 0.57f, 0.60f, alpha};
             float cockpit[4] = {0.50f, 0.65f, 0.80f, alpha};
@@ -431,10 +471,14 @@ void Renderer::renderGame() {
         drawCircle({0,0}, 1.0f, 64, c);
     }
 
-    // Draw Ship (shape depends on the selected variant)
+    // Draw Ship (shape depends on the selected variant). The exhaust plume reflects the engine's
+    // actual thrust: throttle scaled by the limiter, but off while time-warping or out of fuel.
+    float thrustVis = ship.throttle * game_.getThrustLimit();
+    if (game_.getTimeWarp() != 1) thrustVis = 0.0f;
+    if (game_.getFuelFraction() <= 0.0f) thrustVis = 0.0f;
     float shipScale = 10.0f + 0.02f / zoom;
     setMVP(ship.pos, shipScale, ship.angle);
-    drawShipShape(ship.type, 1.0f);
+    drawShipShape(ship.type, 1.0f, thrustVis);
 
     // UI Rendering
     float uiMVP[16];

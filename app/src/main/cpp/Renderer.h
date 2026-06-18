@@ -69,8 +69,9 @@ private:
     void handleMenuInput(const struct GameActivityMotionEvent& ev, float aspect);
 
     // Draws a ship's local-space geometry (call after the MVP is set). Used both in-game and
-    // for the Customize previews.
-    void drawShipShape(ShipType type, float alpha);
+    // for the Customize previews. `thrust` (0..1) drives the exhaust plume's length/brightness;
+    // pass 0 (the default) for a flameless preview.
+    void drawShipShape(ShipType type, float alpha, float thrust = 0.0f);
     // Sets an MVP that places local geometry at a UI-space position/scale/rotation.
     void setUIMVP(Vec2 pos, float scale, float angle);
     // Centred label/button helpers for the menus.
