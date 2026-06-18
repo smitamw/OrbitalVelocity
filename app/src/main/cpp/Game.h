@@ -54,9 +54,13 @@ public:
     void setThrottle(float throttle) { throttle_ = throttle; ship_.throttle = throttle; }
     void setZoom(float zoom) { zoom_ = zoom; }
     void setTimeWarp(int w) { timeWarp_ = w; }
+    // Caps the fraction of full thrust the engine produces, for fine maneuvering. At 1.0 the
+    // ship has full thrust (enough to take off from Earth); lower values give gentler control.
+    void setThrustLimit(float limit) { thrustLimit_ = limit; }
 
     float getZoom() const { return zoom_; }
     int getTimeWarp() const { return timeWarp_; }
+    float getThrustLimit() const { return thrustLimit_; }
 
     CameraMode getCameraMode() const { return cameraMode_; }
     void toggleCameraMode() {
@@ -71,6 +75,7 @@ private:
     float throttle_;
     float zoom_;
     int timeWarp_ = 1; // simulation speed multiplier (1x, 2x, 5x, 10x, 20x)
+    float thrustLimit_ = 1.0f; // 0..1 cap on engine thrust (1 = full, set by the upper-left slider)
     CameraMode cameraMode_ = CameraMode::Ship;
 
     const float G = 1000.0f; // Scaled gravitational constant

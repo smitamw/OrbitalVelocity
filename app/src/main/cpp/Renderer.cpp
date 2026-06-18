@@ -47,8 +47,18 @@ static const int   TW_LEVELS[5]      = {1, 2, 5, 10, 20};
 static const float MIN_ZOOM = 0.000001f;
 static const float MAX_ZOOM_FACTOR = 10000000.0f;
 
-static const float CAM_BTN_CENTER_Y = 0.82f; // top-center
+// Camera mode button: a small square tucked into the upper-right corner.
+static const float CAM_BTN_CENTER_Y = 0.82f; // near the top
+static const float CAM_BTN_X_OFFSET = 0.12f; // center x = aspect - this (right corner)
 static const float CAM_BTN_HALF = 0.08f;     // half side length (small square)
+
+// Thrust limiter: a horizontal slider in the upper-left that caps engine thrust for precise
+// maneuvers. Full (right end) = uncapped thrust, enough to lift off Earth.
+static const float TL_X_OFFSET     = 0.10f;  // left end x = -aspect + this
+static const float TL_LENGTH       = 0.50f;  // horizontal length
+static const float TL_Y            = 0.88f;  // vertical center (upper area)
+static const float TL_HALF_H       = 0.025f; // bar half-thickness
+static const float TL_SENSE_MARGIN = 0.08f;  // easier to grab
 
 static const char *vertex = R"vertex(#version 300 es
 in vec3 inPosition;
@@ -496,8 +506,21 @@ void Renderer::renderGame() {
         }
     }
 
-    // Camera mode button (top-center, translucent square with a camera icon)
-    float bx1 = -CAM_BTN_HALF, bx2 = CAM_BTN_HALF;
+    // Thrust limiter slider (upper-left, horizontal): caps engine thrust for precision.
+    float tlx1 = -aspect + TL_X_OFFSET;
+    float tlx2 = tlx1 + TL_LENGTH;
+    drawPolygon({{tlx1, TL_Y - TL_HALF_H}, {tlx2, TL_Y - TL_HALF_H}, {tlx2, TL_Y + TL_HALF_H}, {tlx1, TL_Y + TL_HALF_H}}, uiColor);
+    float lim = game_.getThrustLimit();
+    float tlFillX = tlx1 + TL_LENGTH * lim;
+    drawPolygon({{tlx1, TL_Y - TL_HALF_H}, {tlFillX, TL_Y - TL_HALF_H}, {tlFillX, TL_Y + TL_HALF_H}, {tlx1, TL_Y + TL_HALF_H}}, activeColor);
+    // Handle marker at the current value
+    float tlHandleW = 0.012f, tlHandleH = TL_HALF_H * 2.2f;
+    drawPolygon({{tlFillX - tlHandleW, TL_Y - tlHandleH}, {tlFillX + tlHandleW, TL_Y - tlHandleH}, {tlFillX + tlHandleW, TL_Y + tlHandleH}, {tlFillX - tlHandleW, TL_Y + tlHandleH}}, activeColor);
+    drawText("THRUST LIMIT", {tlx1, TL_Y - 0.1f}, 0.04f, textColor);
+
+    // Camera mode button (upper-right corner, translucent square with a camera icon)
+    float camCx = aspect - CAM_BTN_X_OFFSET;
+    float bx1 = camCx - CAM_BTN_HALF, bx2 = camCx + CAM_BTN_HALF;
     float by1 = CAM_BTN_CENTER_Y - CAM_BTN_HALF, by2 = CAM_BTN_CENTER_Y + CAM_BTN_HALF;
     drawPolygon({{bx1, by1}, {bx2, by1}, {bx2, by2}, {bx1, by2}}, uiColor);
 
@@ -505,14 +528,14 @@ void Renderer::renderGame() {
     float iconW = CAM_BTN_HALF * 0.62f;  // half-width of camera body
     float iconH = CAM_BTN_HALF * 0.42f;  // half-height of camera body
     float cy = CAM_BTN_CENTER_Y;
-    drawPolygon({{-iconW, cy - iconH}, {iconW, cy - iconH}, {iconW, cy + iconH}, {-iconW, cy + iconH}}, activeColor);
+    drawPolygon({{camCx - iconW, cy - iconH}, {camCx + iconW, cy - iconH}, {camCx + iconW, cy + iconH}, {camCx - iconW, cy + iconH}}, activeColor);
     float bumpW = CAM_BTN_HALF * 0.18f;
-    drawPolygon({{-bumpW, cy + iconH}, {bumpW, cy + iconH}, {bumpW, cy + iconH + CAM_BTN_HALF * 0.16f}, {-bumpW, cy + iconH + CAM_BTN_HALF * 0.16f}}, activeColor);
-    drawCircle({0, cy}, CAM_BTN_HALF * 0.26f, 24, uiColor);
+    drawPolygon({{camCx - bumpW, cy + iconH}, {camCx + bumpW, cy + iconH}, {camCx + bumpW, cy + iconH + CAM_BTN_HALF * 0.16f}, {camCx - bumpW, cy + iconH + CAM_BTN_HALF * 0.16f}}, activeColor);
+    drawCircle({camCx, cy}, CAM_BTN_HALF * 0.26f, 24, uiColor);
 
-    // Mode label above the button
+    // Mode label below the button (centered, so it stays on-screen in the corner)
     const char *modeLabel = game_.getCameraMode() == CameraMode::Ship ? "SHIP" : "BODY";
-    drawText(modeLabel, {-0.1f, by2 + 0.03f}, 0.05f, textColor);
+    drawTextCentered(modeLabel, {camCx, by1 - 0.06f}, 0.05f, textColor);
 }
 
 void Renderer::drawStartScreen() {
@@ -526,7 +549,9 @@ void Renderer::drawStartScreen() {
     float btnColor[4]   = {1, 1, 1, 0.2f};
     float textColor[4]  = {1, 1, 1, 0.85f};
 
-    drawTextCentered("ORBITAL VELOCITY", {0.0f, 0.55f}, 0.1f, titleColor);
+    // Title stacked on two lines so it fits a narrow phone screen
+    drawTextCentered("ORBITAL",  {0.0f, 0.64f}, 0.11f, titleColor);
+    drawTextCentered("VELOCITY", {0.0f, 0.50f}, 0.11f, titleColor);
 
     // PLAY button (hit-test mirrored in handleMenuInput)
     drawPolygon({{-0.35f, 0.03f}, {0.35f, 0.03f}, {0.35f, 0.27f}, {-0.35f, 0.27f}}, btnColor);
@@ -543,8 +568,8 @@ void Renderer::drawStartScreen() {
 
 void Renderer::drawCustomizeScreen() {
     float aspect = float(width_) / height_;
+    float uiMVP[16];
     auto resetUI = [&]() {
-        float uiMVP[16];
         Utility::buildIdentityMatrix(uiMVP);
         uiMVP[0] = 1.0f / aspect;
         shader_->setMVP(uiMVP);
@@ -552,37 +577,38 @@ void Renderer::drawCustomizeScreen() {
     resetUI();
 
     float titleColor[4] = {1, 1, 1, 0.9f};
-    drawTextCentered("CUSTOMIZE", {0.0f, 0.78f}, 0.09f, titleColor);
+    float textColor[4]  = {1, 1, 1, 0.9f};
+    float btnColor[4]   = {1, 1, 1, 0.2f};
+    float arrowColor[4] = {1, 1, 1, 0.7f};
+
+    drawTextCentered("CUSTOMIZE", {0.0f, 0.80f}, 0.09f, titleColor);
 
     const char* names[3] = {"TRIANGLE", "ROCKET", "FALCON"};
     const char* fuels[3] = {"FUEL LOW", "FUEL MED", "FUEL INF"};
-    float xs[3] = {-0.55f, 0.0f, 0.55f};
+    int sel = (int)selectedShip_;
 
-    for (int i = 0; i < 3; ++i) {
-        bool sel = ((int)selectedShip_ == i);
-        // Selection panel (highlighted when chosen)
-        resetUI();
-        float panel[4] = {1, 1, 1, sel ? 0.28f : 0.10f};
-        drawPolygon({{xs[i] - 0.24f, -0.25f}, {xs[i] + 0.24f, -0.25f}, {xs[i] + 0.24f, 0.35f}, {xs[i] - 0.24f, 0.35f}}, panel);
-        // Ship preview
-        setUIMVP({xs[i], 0.12f}, 0.18f, 0.0f);
-        drawShipShape((ShipType)i, sel ? 1.0f : 0.7f);
-        // Labels
-        resetUI();
-        float labelColor[4] = {1, 1, 1, sel ? 0.95f : 0.55f};
-        drawTextCentered(names[i], {xs[i], -0.36f}, 0.05f, labelColor);
-        drawTextCentered(fuels[i], {xs[i], -0.45f}, 0.04f, labelColor);
-    }
+    // Centered ship sprite (scale capped so it doesn't balloon on tall/portrait screens)
+    float spriteScale = 0.26f * std::min(1.0f, aspect);
+    setUIMVP({0.0f, 0.30f}, spriteScale, 0.0f);
+    drawShipShape(selectedShip_, 1.0f);
 
+    // Name + fuel under the sprite
     resetUI();
-    float btnColor[4] = {1, 1, 1, 0.2f};
-    float textColor[4] = {1, 1, 1, 0.85f};
-    // BACK button
-    drawPolygon({{-0.52f, -0.8f}, {-0.08f, -0.8f}, {-0.08f, -0.6f}, {-0.52f, -0.6f}}, btnColor);
-    drawTextCentered("BACK", {-0.3f, -0.7f}, 0.06f, textColor);
-    // PLAY button
-    drawPolygon({{0.08f, -0.8f}, {0.52f, -0.8f}, {0.52f, -0.6f}, {0.08f, -0.6f}}, btnColor);
-    drawTextCentered("PLAY", {0.3f, -0.7f}, 0.06f, textColor);
+    drawTextCentered(names[sel], {0.0f, -0.05f}, 0.07f, textColor);
+    drawTextCentered(fuels[sel], {0.0f, -0.18f}, 0.05f, textColor);
+
+    // Left/right arrows flanking the sprite to switch ships (kept on-screen; clamped so they
+    // don't drift too far out on wide/landscape screens). Hit-tests mirror these positions.
+    float arrowX = std::min(aspect - 0.18f, 0.62f);
+    float ay = 0.30f, ah = 0.13f, aw = 0.10f;
+    drawPolygon({{-arrowX - aw, ay}, {-arrowX + aw, ay + ah}, {-arrowX + aw, ay - ah}}, arrowColor); // points left
+    drawPolygon({{arrowX + aw, ay}, {arrowX - aw, ay + ah}, {arrowX - aw, ay - ah}}, arrowColor);    // points right
+
+    // Smaller BACK / PLAY buttons, close together near the bottom
+    drawPolygon({{-0.40f, -0.78f}, {-0.04f, -0.78f}, {-0.04f, -0.62f}, {-0.40f, -0.62f}}, btnColor);
+    drawTextCentered("BACK", {-0.22f, -0.70f}, 0.05f, textColor);
+    drawPolygon({{0.04f, -0.78f}, {0.40f, -0.78f}, {0.40f, -0.62f}, {0.04f, -0.62f}}, btnColor);
+    drawTextCentered("PLAY", {0.22f, -0.70f}, 0.05f, textColor);
 }
 
 void Renderer::handleInput() {
@@ -650,8 +676,9 @@ void Renderer::handleGameInput(const GameActivityMotionEvent& motionEvent, float
         // should not also spawn a joystick.
         bool onButton = false;
 
-        // Camera mode button (top-center): toggle on tap
-        if (isDown && x >= -CAM_BTN_HALF && x <= CAM_BTN_HALF &&
+        // Camera mode button (upper-right corner): toggle on tap
+        float camCx = aspect - CAM_BTN_X_OFFSET;
+        if (isDown && x >= camCx - CAM_BTN_HALF && x <= camCx + CAM_BTN_HALF &&
             y >= CAM_BTN_CENTER_Y - CAM_BTN_HALF && y <= CAM_BTN_CENTER_Y + CAM_BTN_HALF) {
             game_.toggleCameraMode();
             onButton = true;
@@ -665,6 +692,21 @@ void Renderer::handleGameInput(const GameActivityMotionEvent& motionEvent, float
                     y >= TW_ROW_Y - TW_BTN_HALF && y <= TW_ROW_Y + TW_BTN_HALF) {
                     game_.setTimeWarp(TW_LEVELS[b]);
                     onButton = true;
+                }
+            }
+        }
+
+        // Thrust limiter slider (upper-left, horizontal). Adjusts on touch/drag within its
+        // band. The !joyActive_ guard stops a roaming flight gesture from nudging it.
+        if (!joyActive_) {
+            float tlx1 = -aspect + TL_X_OFFSET;
+            float tlx2 = tlx1 + TL_LENGTH;
+            if (x >= tlx1 - TL_SENSE_MARGIN && x <= tlx2 + TL_SENSE_MARGIN &&
+                y >= TL_Y - TL_HALF_H - TL_SENSE_MARGIN && y <= TL_Y + TL_HALF_H + TL_SENSE_MARGIN) {
+                if (isDown) onButton = true; // claim the touch; don't spawn the joystick
+                if (!isUp) {
+                    float v = (x - tlx1) / TL_LENGTH;
+                    game_.setThrustLimit(std::max(0.0f, std::min(1.0f, v)));
                 }
             }
         }
@@ -720,11 +762,15 @@ void Renderer::handleMenuInput(const GameActivityMotionEvent& motionEvent, float
         if (hitRect(x, y, 0.0f, 0.15f, 0.35f, 0.12f)) startPlaying();
         else if (hitRect(x, y, 0.0f, -0.2f, 0.35f, 0.12f)) screen_ = Screen::Customize;
     } else { // Customize
-        float xs[3] = {-0.55f, 0.0f, 0.55f};
-        for (int i = 0; i < 3; ++i) {
-            if (hitRect(x, y, xs[i], 0.05f, 0.24f, 0.3f)) selectedShip_ = (ShipType)i;
+        float arrowX = std::min(aspect - 0.18f, 0.62f);
+        if (hitRect(x, y, -arrowX, 0.30f, 0.16f, 0.20f)) {           // left arrow: previous ship
+            selectedShip_ = (ShipType)(((int)selectedShip_ + 2) % 3);
+        } else if (hitRect(x, y, arrowX, 0.30f, 0.16f, 0.20f)) {     // right arrow: next ship
+            selectedShip_ = (ShipType)(((int)selectedShip_ + 1) % 3);
+        } else if (hitRect(x, y, -0.22f, -0.70f, 0.18f, 0.10f)) {    // BACK
+            screen_ = Screen::Start;
+        } else if (hitRect(x, y, 0.22f, -0.70f, 0.18f, 0.10f)) {     // PLAY
+            startPlaying();
         }
-        if (hitRect(x, y, -0.3f, -0.7f, 0.22f, 0.1f)) screen_ = Screen::Start;       // BACK
-        else if (hitRect(x, y, 0.3f, -0.7f, 0.22f, 0.1f)) startPlaying();            // PLAY
     }
 }

@@ -114,6 +114,7 @@ void Game::startWithShip(ShipType type) {
     ship_.throttle = 0.0f;
     throttle_ = 0.0f;
     joystick_ = {0, 0};
+    thrustLimit_ = 1.0f; // start at full thrust so the ship can lift off Earth
     ship_.mass = 1.0f;
     // All ships get the same thrust. Earth's surface gravity is mu/r^2 = 250; 350 gives a
     // thrust-to-weight ratio of ~1.4, enough for every variant to take off.
@@ -122,8 +123,8 @@ void Game::startWithShip(ShipType type) {
 
     ship_.type = type;
     switch (type) {
-        case ShipType::Triangle: ship_.infiniteFuel = false; ship_.maxFuel = ship_.fuel = 12.0f; break;  // low
-        case ShipType::Rocket:   ship_.infiniteFuel = false; ship_.maxFuel = ship_.fuel = 35.0f; break;  // medium
+        case ShipType::Triangle: ship_.infiniteFuel = false; ship_.maxFuel = ship_.fuel = 6.0f; break;  // low
+        case ShipType::Rocket:   ship_.infiniteFuel = false; ship_.maxFuel = ship_.fuel = 15.0f; break;  // medium
         case ShipType::Falcon:   ship_.infiniteFuel = true;  ship_.maxFuel = ship_.fuel = 1.0f;  break;  // infinite
     }
 }
@@ -176,12 +177,14 @@ void Game::update(float dt) {
                 ship_.fuel = 0.0f;
                 stepThrottle = 0.0f;
             } else {
-                ship_.fuel = std::max(0.0f, ship_.fuel - stepThrottle * subDt);
+                // Fuel burn scales with the thrust actually produced, so limiting thrust for
+                // precision burns also sips fuel rather than wasting it.
+                ship_.fuel = std::max(0.0f, ship_.fuel - stepThrottle * thrustLimit_ * subDt);
             }
         }
 
         Vec2 thrustDir = {std::cos(ship_.angle), std::sin(ship_.angle)};
-        totalAcc += thrustDir * (ship_.thrust * stepThrottle / ship_.mass);
+        totalAcc += thrustDir * (ship_.thrust * thrustLimit_ * stepThrottle / ship_.mass);
 
         ship_.vel += totalAcc * subDt;
         ship_.pos += ship_.vel * subDt;
