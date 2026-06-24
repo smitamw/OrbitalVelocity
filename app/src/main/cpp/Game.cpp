@@ -3,31 +3,45 @@
 #include <algorithm>
 
 Game::Game() : zoom_(0.02f), throttle_(0.0f), joystick_({0, 0}) {
+    // Spread starting phases with the golden angle so no two bodies begin aligned and orbital
+    // periods don't share simple integer ratios — keeps the system decorrelated and stable over
+    // long runs (instead of every body starting collinear on the +x axis). The counter advances
+    // once per body created, so planets fan out around the Sun and each planet's moons fan out
+    // around it, each ~137.5 degrees from the previous one.
+    constexpr float kGoldenAngle = 2.39996323f; // ~137.5 degrees, in radians
+    int phaseIndex = 0;
+
     // Helper: a planet in a circular heliocentric orbit at `dist` from the Sun.
     auto makePlanet = [&](float dist, float mass, float radius, float color[4]) {
+        float theta = kGoldenAngle * phaseIndex++;
         float vel = std::sqrt(bodies_[0].mu / dist); // index 0 is always the Sun
-        bodies_.push_back({{dist, 0}, {0, vel}, mass, radius, G * mass, {color[0], color[1], color[2], color[3]}, 0});
+        Vec2 pos = {dist * std::cos(theta), dist * std::sin(theta)};
+        Vec2 v   = {-vel * std::sin(theta), vel * std::cos(theta)};
+        bodies_.push_back({pos, v, mass, radius, G * mass, {color[0], color[1], color[2], color[3]}, 0});
     };
     // Helper: a moon in a circular orbit at `dist` from its parent planet.
     auto makeMoon = [&](int parent, float dist, float mass, float radius, float color[4]) {
+        float theta = kGoldenAngle * phaseIndex++;
         const CelestialBody& p = bodies_[parent];
         float vel = std::sqrt(p.mu / dist);
-        bodies_.push_back({{p.pos.x + dist, p.pos.y}, {p.vel.x, p.vel.y + vel}, mass, radius, G * mass, {color[0], color[1], color[2], color[3]}, parent});
+        Vec2 rel  = {dist * std::cos(theta), dist * std::sin(theta)};
+        Vec2 vrel = {-vel * std::sin(theta), vel * std::cos(theta)};
+        bodies_.push_back({p.pos + rel, {p.vel.x + vrel.x, p.vel.y + vrel.y}, mass, radius, G * mass, {color[0], color[1], color[2], color[3]}, parent});
     };
 
     // Index 0: Sun (pinned at origin, no parent)
     bodies_.push_back({{0, 0}, {0, 0}, 1000000.0f, 1000.0f, G * 1000000.0f, {1.0f, 0.8f, 0.0f, 1.0f}, -1});
 
     // Inner planets. Distances are roughly proportional to real semi-major axes,
-    // scaled so Earth sits at 20000 units (Mercury 0.39 AU, Venus 0.72, Mars 1.52).
+    // scaled so Earth sits at 40000 units (Mercury 0.39 AU, Venus 0.72, Mars 1.52).
     float mercuryColor[4] = {0.6f, 0.55f, 0.5f, 1.0f}; // gray-brown
     float venusColor[4]   = {0.9f, 0.8f, 0.5f, 1.0f};  // pale yellow
     float earthColor[4]   = {0.2f, 0.6f, 1.0f, 1.0f};  // blue
     float marsColor[4]    = {0.8f, 0.35f, 0.2f, 1.0f}; // reddish
-    makePlanet(7700.0f,  600.0f,   90.0f,  mercuryColor); // index 1: Mercury
-    makePlanet(14500.0f, 8100.0f,  190.0f, venusColor);   // index 2: Venus
+    makePlanet(77000.0f,  600.0f,   90.0f,  mercuryColor); // index 1: Mercury
+    makePlanet(145000.0f, 8100.0f,  190.0f, venusColor);   // index 2: Venus
 
-    float earthDist = 20000.0f;
+    float earthDist = 200000.0f;
     float earthVel = std::sqrt(bodies_[0].mu / earthDist);
     makePlanet(earthDist, 10000.0f, 200.0f, earthColor);  // index 3: Earth
     const int EARTH = 3;
@@ -36,7 +50,7 @@ Game::Game() : zoom_(0.02f), throttle_(0.0f), joystick_({0, 0}) {
     float moonColor[4] = {0.7f, 0.7f, 0.7f, 1.0f};
     makeMoon(EARTH, 1200.0f, 100.0f, 50.0f, moonColor);   // index 4: Moon
 
-    makePlanet(30500.0f, 1100.0f, 110.0f, marsColor);     // index 5: Mars
+    makePlanet(305000.0f, 1100.0f, 110.0f, marsColor);     // index 5: Mars
     const int MARS = 5;
 
     // Mars moons. Distances are exaggerated for visibility (Phobos inside Deimos);
@@ -47,7 +61,7 @@ Game::Game() : zoom_(0.02f), throttle_(0.0f), joystick_({0, 0}) {
     makeMoon(MARS, 1300.0f, 0.5f, 10.0f, deimosColor);    // index 7: Deimos
 
     // Outer planets. Heliocentric distances stay proportional to the real semi-major
-    // axes (Earth = 20000 units): Jupiter 5.20 AU, Saturn 9.58, Uranus 19.18, Neptune 30.07.
+    // axes (Earth = 200000 units): Jupiter 5.20 AU, Saturn 9.58, Uranus 19.18, Neptune 30.07.
     // Masses are kept well below the Sun's so the system stays stable; their large Hill
     // spheres (a consequence of the wide orbits) leave plenty of room for moons. Moon
     // distances preserve the real ordering/ratios but are scaled for visibility, like the
@@ -58,7 +72,7 @@ Game::Game() : zoom_(0.02f), throttle_(0.0f), joystick_({0, 0}) {
     float neptuneColor[4] = {0.25f, 0.40f, 0.85f, 1.0f}; // deep blue
 
     int JUPITER = (int)bodies_.size();
-    makePlanet(104000.0f, 40000.0f, 600.0f, jupiterColor);
+    makePlanet(1040000.0f, 40000.0f, 600.0f, jupiterColor);
     float ioColor[4]       = {0.90f, 0.85f, 0.40f, 1.0f}; // sulfur yellow
     float europaColor[4]   = {0.85f, 0.85f, 0.80f, 1.0f}; // icy white
     float ganymedeColor[4] = {0.60f, 0.55f, 0.50f, 1.0f}; // tan-gray
@@ -69,7 +83,7 @@ Game::Game() : zoom_(0.02f), throttle_(0.0f), joystick_({0, 0}) {
     makeMoon(JUPITER, 7800.0f, 45.0f, 52.0f, callistoColor);
 
     int SATURN = (int)bodies_.size();
-    makePlanet(191600.0f, 28000.0f, 520.0f, saturnColor);
+    makePlanet(1916000.0f, 28000.0f, 520.0f, saturnColor);
     float enceladusColor[4] = {0.90f, 0.90f, 0.95f, 1.0f}; // bright ice
     float rheaColor[4]      = {0.70f, 0.70f, 0.70f, 1.0f}; // gray
     float titanColor[4]     = {0.85f, 0.60f, 0.30f, 1.0f}; // orange haze
@@ -80,7 +94,7 @@ Game::Game() : zoom_(0.02f), throttle_(0.0f), joystick_({0, 0}) {
     makeMoon(SATURN, 12000.0f, 12.0f, 28.0f, iapetusColor);
 
     int URANUS = (int)bodies_.size();
-    makePlanet(383600.0f, 15000.0f, 360.0f, uranusColor);
+    makePlanet(3836000.0f, 15000.0f, 360.0f, uranusColor);
     float mirandaColor[4] = {0.60f, 0.60f, 0.65f, 1.0f};
     float arielColor[4]   = {0.70f, 0.70f, 0.72f, 1.0f};
     float titaniaColor[4] = {0.65f, 0.60f, 0.60f, 1.0f};
@@ -91,7 +105,7 @@ Game::Game() : zoom_(0.02f), throttle_(0.0f), joystick_({0, 0}) {
     makeMoon(URANUS, 9000.0f, 15.0f, 31.0f, oberonColor);
 
     int NEPTUNE = (int)bodies_.size();
-    makePlanet(601400.0f, 17000.0f, 350.0f, neptuneColor);
+    makePlanet(6014000.0f, 17000.0f, 350.0f, neptuneColor);
     float proteusColor[4] = {0.45f, 0.45f, 0.50f, 1.0f}; // dark
     float tritonColor[4]  = {0.80f, 0.75f, 0.78f, 1.0f}; // pinkish ice
     makeMoon(NEPTUNE, 2000.0f,  6.0f, 16.0f, proteusColor);
@@ -123,8 +137,8 @@ void Game::startWithShip(ShipType type) {
 
     ship_.type = type;
     switch (type) {
-        case ShipType::Triangle: ship_.infiniteFuel = false; ship_.maxFuel = ship_.fuel = 6.0f; break;  // low
-        case ShipType::Rocket:   ship_.infiniteFuel = false; ship_.maxFuel = ship_.fuel = 15.0f; break;  // medium
+        case ShipType::Triangle: ship_.infiniteFuel = false; ship_.maxFuel = ship_.fuel = 4.0f; break;  // low
+        case ShipType::Rocket:   ship_.infiniteFuel = false; ship_.maxFuel = ship_.fuel = 10.0f; break;  // medium
         case ShipType::Falcon:   ship_.infiniteFuel = true;  ship_.maxFuel = ship_.fuel = 1.0f;  break;  // infinite
     }
 }

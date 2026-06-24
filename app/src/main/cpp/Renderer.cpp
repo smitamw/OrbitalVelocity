@@ -6,6 +6,7 @@
 #include <time.h>
 #include <algorithm>
 #include <cstdint>
+#include <string>
 #include "AndroidOut.h"
 #include "Shader.h"
 #include "Utility.h"
@@ -34,19 +35,21 @@ static const float FUEL_Y_MAX = 0.5f;
 static const float HUD_FADE_START = 5.0f;
 static const float HUD_FADE_DUR = 1.0f;
 
-// Timewarp buttons: a row of 5 small squares in the bottom-left (below the joystick),
-// each showing 1..5 right-pointing chevrons to indicate increasing speed.
-static const float TW_BTN_HALF       = 0.06f;  // half side of each warp button
-static const float TW_BTN_SPACING    = 0.135f; // distance between button centers
+// Timewarp buttons: a row of small squares in the bottom-left (below the joystick),
+// each labeled with its multiplier (e.g. "1X", "50X", "500X") to show the selected speed.
+static const float TW_BTN_HALF       = 0.07f;  // half side of each warp button
+static const float TW_BTN_SPACING    = 0.15f;  // distance between button centers
 static const float TW_ROW_Y          = -0.88f; // row center y
 static const float TW_FIRST_X_OFFSET = 0.10f;  // first center x = -aspect + this
-static const int   TW_LEVELS[5]      = {1, 2, 5, 10, 20};
+static const float TW_LABEL_SIZE     = 0.032f; // label text size (fits the widest, "100X"/"500X")
+static const int   TW_LEVELS[]       = {1, 2, 5, 10, 50, 100, 500};
+static constexpr int TW_LEVEL_COUNT  = sizeof(TW_LEVELS) / sizeof(TW_LEVELS[0]);
 
 // MIN_ZOOM sets the maximum zoom-out; lowered so the outer planets (Neptune ~601400
 // units) fit on screen. MAX_ZOOM_FACTOR is raised in step to preserve the zoom-in limit
 // (max zoom = MIN_ZOOM * MAX_ZOOM_FACTOR = 10, unchanged).
-static const float MIN_ZOOM = 0.000001f;
-static const float MAX_ZOOM_FACTOR = 10000000.0f;
+static const float MIN_ZOOM = 0.0000001f;
+static const float MAX_ZOOM_FACTOR = 1000000.0f;
 
 // Camera mode button: a small square tucked into the upper-right corner.
 static const float CAM_BTN_CENTER_Y = 0.82f; // near the top
@@ -266,6 +269,16 @@ void Renderer::drawText(const std::string& text, Vec2 pos, float size, float col
             case 'V': drawLine(0, 1, 0.5f, 0); drawLine(0.5f, 0, 1, 1); break;
             case 'W': drawLine(0, 1, 0.25f, 0); drawLine(0.25f, 0, 0.5f, 0.6f); drawLine(0.5f, 0.6f, 0.75f, 0); drawLine(0.75f, 0, 1, 1); break;
             case 'X': drawLine(0, 0, 1, 1); drawLine(0, 1, 1, 0); break;
+            case '0': drawLine(0, 0, 1, 0); drawLine(1, 0, 1, 1); drawLine(1, 1, 0, 1); drawLine(0, 1, 0, 0); drawLine(0, 0, 1, 1); break;
+            case '1': drawLine(0.3f, 0.7f, 0.5f, 1); drawLine(0.5f, 1, 0.5f, 0); drawLine(0.2f, 0, 0.8f, 0); break;
+            case '2': drawLine(0, 1, 1, 1); drawLine(1, 1, 1, 0.5f); drawLine(1, 0.5f, 0, 0); drawLine(0, 0, 1, 0); break;
+            case '3': drawLine(0, 1, 1, 1); drawLine(1, 1, 1, 0); drawLine(1, 0, 0, 0); drawLine(0.4f, 0.5f, 1, 0.5f); break;
+            case '4': drawLine(0, 1, 0, 0.5f); drawLine(0, 0.5f, 1, 0.5f); drawLine(1, 1, 1, 0); break;
+            case '5': drawLine(1, 1, 0, 1); drawLine(0, 1, 0, 0.5f); drawLine(0, 0.5f, 1, 0.5f); drawLine(1, 0.5f, 1, 0); drawLine(1, 0, 0, 0); break;
+            case '6': drawLine(1, 1, 0, 1); drawLine(0, 1, 0, 0); drawLine(0, 0, 1, 0); drawLine(1, 0, 1, 0.5f); drawLine(1, 0.5f, 0, 0.5f); break;
+            case '7': drawLine(0, 1, 1, 1); drawLine(1, 1, 0.4f, 0); break;
+            case '8': drawLine(0, 0, 1, 0); drawLine(1, 0, 1, 1); drawLine(1, 1, 0, 1); drawLine(0, 1, 0, 0); drawLine(0, 0.5f, 1, 0.5f); break;
+            case '9': drawLine(1, 0, 1, 1); drawLine(1, 1, 0, 1); drawLine(0, 1, 0, 0.5f); drawLine(0, 0.5f, 1, 0.5f); break;
         }
         x += charW + gap;
     }
@@ -529,8 +542,8 @@ void Renderer::renderGame() {
     float textColor[4] = {1, 1, 1, 0.5f * uiFade};
     drawText(game_.shipHasInfiniteFuel() ? "INF" : "FUEL", {fx1 - 0.22f, FUEL_Y_MAX + 0.03f}, 0.05f, textColor);
 
-    // Timewarp buttons (bottom-left row): button i shows i+1 chevrons; active one is highlighted
-    for (int i = 0; i < 5; ++i) {
+    // Timewarp buttons (bottom-left row): each labeled with its multiplier; active one is highlighted
+    for (int i = 0; i < TW_LEVEL_COUNT; ++i) {
         float cx = -aspect + TW_FIRST_X_OFFSET + i * TW_BTN_SPACING;
         float cy = TW_ROW_Y;
         float bx1 = cx - TW_BTN_HALF, bx2 = cx + TW_BTN_HALF;
@@ -538,16 +551,8 @@ void Renderer::renderGame() {
         float* bg = (game_.getTimeWarp() == TW_LEVELS[i]) ? activeColor : uiColor;
         drawPolygon({{bx1, by1}, {bx2, by1}, {bx2, by2}, {bx1, by2}}, bg);
 
-        // Chevrons: i+1 right-pointing triangles spread across the button's inner width
-        int count = i + 1;
-        float innerW = TW_BTN_HALF * 1.4f;   // total span used by the chevrons
-        float ih = TW_BTN_HALF * 0.45f;      // chevron half-height
-        float chW = innerW / count;          // per-chevron slot width
-        for (int k = 0; k < count; ++k) {
-            float left = cx - innerW * 0.5f + k * chW;
-            float right = left + chW * 0.8f; // 0.8 leaves a small gap between chevrons
-            drawPolygon({{left, cy - ih}, {right, cy}, {left, cy + ih}}, textColor);
-        }
+        // Label: the multiplier, e.g. "1X", "50X", "500X"
+        drawTextCentered(std::to_string(TW_LEVELS[i]) + "X", {cx, cy}, TW_LABEL_SIZE, textColor);
     }
 
     // Thrust limiter slider (upper-left, horizontal): caps engine thrust for precision.
@@ -730,7 +735,7 @@ void Renderer::handleGameInput(const GameActivityMotionEvent& motionEvent, float
 
         // Timewarp buttons (bottom-left row): select speed on tap
         if (isDown) {
-            for (int b = 0; b < 5; ++b) {
+            for (int b = 0; b < TW_LEVEL_COUNT; ++b) {
                 float cx = -aspect + TW_FIRST_X_OFFSET + b * TW_BTN_SPACING;
                 if (x >= cx - TW_BTN_HALF && x <= cx + TW_BTN_HALF &&
                     y >= TW_ROW_Y - TW_BTN_HALF && y <= TW_ROW_Y + TW_BTN_HALF) {

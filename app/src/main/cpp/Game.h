@@ -74,7 +74,7 @@ private:
     Vec2 joystick_;
     float throttle_;
     float zoom_;
-    int timeWarp_ = 1; // simulation speed multiplier (1x, 2x, 5x, 10x, 20x)
+    int timeWarp_ = 1; // simulation speed multiplier (1x, 2x, 5x, 10x, 50x, 100x, 500x)
     float thrustLimit_ = 1.0f; // 0..1 cap on engine thrust (1 = full, set by the upper-left slider)
     CameraMode cameraMode_ = CameraMode::Ship;
 
