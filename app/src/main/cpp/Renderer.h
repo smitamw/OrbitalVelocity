@@ -25,6 +25,11 @@ public:
             height_(0),
             lastTime_(0) {
         initRenderer();
+        // If a valid save exists, the title screen offers CONTINUE / NEW GAME. The save is only
+        // applied to the live game when the player taps CONTINUE (see handleMenuInput), leaving
+        // the freshly-constructed solar system intact in case they choose NEW GAME instead.
+        std::string p = savePath();
+        hasSave_ = !p.empty() && game_.hasValidSave(p);
     }
 
     virtual ~Renderer();
@@ -40,6 +45,12 @@ public:
      * Renders all the models in the renderer
      */
     void render();
+
+    /*!
+     * Persists the in-progress game to internal storage. Called on APP_CMD_PAUSE (see main.cpp)
+     * and as a backstop from the destructor. No-op until a game has actually been started.
+     */
+    void saveState();
 
 private:
     /*!
@@ -61,9 +72,10 @@ private:
     void drawText(const std::string& text, Vec2 pos, float size, float color[4]);
 
     // Screen flow: which screen we're on and the per-screen render/input handlers.
-    enum class Screen { Start, Customize, Playing };
+    enum class Screen { Start, Customize, Upgrades, Playing };
     void drawStartScreen();
     void drawCustomizeScreen();
+    void drawUpgradesScreen();   // fuel-capacity shop, reached from the in-game "Upgrades" button
     void renderGame();           // the in-world + HUD render (the original render body)
     void handleGameInput(const struct GameActivityMotionEvent& ev, float aspect);
     void handleMenuInput(const struct GameActivityMotionEvent& ev, float aspect);
@@ -78,8 +90,13 @@ private:
     void drawTextCentered(const std::string& text, Vec2 center, float size, float color[4]);
     bool hitRect(float x, float y, float cx, float cy, float halfW, float halfH);
 
+    // Absolute path of the save file in internal storage; empty if no data dir is available.
+    std::string savePath() const;
+
     Screen screen_ = Screen::Start;
-    ShipType selectedShip_ = ShipType::Triangle; // session-only; not persisted
+    ShipType selectedShip_ = ShipType::Triangle; // mirrors the saved ship for the title preview
+    bool hasSave_ = false;      // a valid save exists → title shows CONTINUE / NEW GAME
+    bool gameStarted_ = false;  // a game is in progress this session → saveState() will write
 
     float uiIdleTime_ = 0.0f;     // seconds since last gameplay touch (drives HUD fade)
     bool uiHidden_ = false;       // true once the HUD has fully faded out

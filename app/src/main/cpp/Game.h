@@ -2,6 +2,7 @@
 #define ORBITAL_VELOCITY_GAME_H
 
 #include <vector>
+#include <string>
 #include "MathUtils.h"
 
 struct CelestialBody {
@@ -16,8 +17,8 @@ struct CelestialBody {
 
 enum class CameraMode { Ship, Body };
 
-// Selectable spacecraft. They differ only in appearance and fuel capacity; all share the
-// same thrust (enough to lift off Earth's surface). See Game::startWithShip.
+// Selectable spacecraft. Purely cosmetic — all variants share the same thrust and fuel
+// capacity; they differ only in appearance. Rocket/Falcon are unlocked with science points.
 enum class ShipType { Triangle, Rocket, Falcon };
 
 struct Ship {
@@ -30,8 +31,7 @@ struct Ship {
     float color[4];
     ShipType type;
     float fuel;          // remaining fuel, in seconds of full-throttle burn
-    float maxFuel;       // capacity (for the gauge); meaningless when infiniteFuel
-    bool infiniteFuel;   // true for the Millennium Falcon
+    float maxFuel;       // capacity (for the gauge) = Game::getFuelCapacity()
 };
 
 class Game {
@@ -42,12 +42,41 @@ public:
     // (Re)start gameplay with the chosen ship, landed on Earth's surface and ready to launch.
     void startWithShip(ShipType type);
 
+    // Persistence. The simulation (every body's pos/vel and the ship's type/pos/vel/heading/
+    // fuel, plus zoom/camera/thrust-limit) is written to a small binary file so the player can
+    // close the app and resume. Derived fields (body mass/radius/etc. and ship fields set by
+    // startWithShip) are rebuilt rather than stored. See Game.cpp for the format.
+    bool saveTo(const std::string& path) const;
+    // Cheap header-only check: true iff the file is a save matching this build's body count.
+    bool hasValidSave(const std::string& path) const;
+    // Applies a save to this game; on any mismatch/IO error returns false and leaves the game
+    // in its freshly-constructed state so the caller can fall back to a new game.
+    bool loadFrom(const std::string& path);
+
     const std::vector<CelestialBody>& getBodies() const { return bodies_; }
     const Ship& getShip() const { return ship_; }
 
-    // Fuel display helpers: fraction is 0..1 of capacity (always 1 for infinite-fuel ships).
-    float getFuelFraction() const { return ship_.infiniteFuel ? 1.0f : (ship_.maxFuel > 0 ? ship_.fuel / ship_.maxFuel : 0.0f); }
-    bool shipHasInfiniteFuel() const { return ship_.infiniteFuel; }
+    // Fuel display helper: fraction is 0..1 of capacity.
+    float getFuelFraction() const { return ship_.maxFuel > 0 ? ship_.fuel / ship_.maxFuel : 0.0f; }
+
+    // Progression: science points are earned by landing on worlds (see update()) and spent on
+    // fuel-capacity upgrades and ship unlocks. Fuel capacity grows 0.1 per purchased upgrade
+    // from a base of 3.0 units; all ships share it.
+    static constexpr float kBaseFuel = 3.0f;
+    float getFuelCapacity() const { return kBaseFuel + 0.1f * fuelUpgrades_; }
+    int getScience() const { return science_; }
+    bool isShipUnlocked(ShipType t) const { return shipUnlocked_[(int)t]; }
+    int shipUnlockCost(ShipType t) const {
+        switch (t) { case ShipType::Rocket: return 4; case ShipType::Falcon: return 6; default: return 0; }
+    }
+    // Spend science. Each returns true on success, false if unaffordable / already owned.
+    bool buyFuelUpgrade();
+    bool unlockShip(ShipType t);
+
+    // True while the ship is resting on Earth's surface (its home base). Set during update()
+    // by the landing detection; drives the in-game "Change ship" button. Earth refuels the
+    // ship automatically while landed.
+    bool isOnEarth() const { return landedOnEarth_; }
 
     // Controls
     void setJoystick(Vec2 joystick) { joystick_ = joystick; }
@@ -68,8 +97,21 @@ public:
     }
 
 private:
+    static constexpr int kEarthIndex = 3; // Earth's index in bodies_ (see Game() / startWithShip)
+
     std::vector<CelestialBody> bodies_;
     Ship ship_;
+    bool landedOnEarth_ = false; // recomputed each update(); true while parked on Earth
+
+    // Progression state. science_/fuelUpgrades_/shipUnlocked_ and the per-body visited_/
+    // returnAwarded_ flags are persisted in the save; scienceEligible_ is rebuilt each
+    // construction (which bodies grant science: all except Sun, Earth, and the gas giants).
+    int science_ = 0;
+    int fuelUpgrades_ = 0;
+    bool shipUnlocked_[3] = {true, false, false}; // Triangle always; Rocket/Falcon unlockable
+    std::vector<bool> visited_;        // landed on this body at least once
+    std::vector<bool> returnAwarded_;  // the Earth-return bonus for this body was granted
+    std::vector<bool> scienceEligible_; // body awards science (not Sun/Earth/gas giant)
 
     Vec2 joystick_;
     float throttle_;

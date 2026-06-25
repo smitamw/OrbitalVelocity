@@ -22,6 +22,14 @@ void handle_cmd(android_app *pApp, int32_t cmd) {
             // android_main function and the APP_CMD_TERM_WINDOW handler case.
             pApp->userData = new Renderer(pApp);
             break;
+        case APP_CMD_PAUSE:
+            // App is going to the background (Home, app-switch, swipe-kill all deliver this
+            // before the window/process is torn down). Persist the in-progress game so it can
+            // be resumed. Runs on the game-loop thread, so there's no race with render/update.
+            if (pApp->userData) {
+                reinterpret_cast<Renderer *>(pApp->userData)->saveState();
+            }
+            break;
         case APP_CMD_TERM_WINDOW:
             // The window is being destroyed. Use this to clean up your userData to avoid leaking
             // resources.

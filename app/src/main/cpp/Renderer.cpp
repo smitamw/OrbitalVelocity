@@ -6,6 +6,7 @@
 #include <time.h>
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include "AndroidOut.h"
 #include "Shader.h"
@@ -35,13 +36,16 @@ static const float FUEL_Y_MAX = 0.5f;
 static const float HUD_FADE_START = 5.0f;
 static const float HUD_FADE_DUR = 1.0f;
 
-// Timewarp buttons: a row of small squares in the bottom-left (below the joystick),
-// each labeled with its multiplier (e.g. "1X", "50X", "500X") to show the selected speed.
+// Timewarp buttons: small squares in the bottom-left (below the joystick), each labeled
+// with its multiplier (e.g. "1X", "50X", "500X"). They wrap into two rows so the full set
+// fits in portrait orientation (a single row overflows the right edge when aspect < 1).
 static const float TW_BTN_HALF       = 0.07f;  // half side of each warp button
-static const float TW_BTN_SPACING    = 0.15f;  // distance between button centers
-static const float TW_ROW_Y          = -0.88f; // row center y
-static const float TW_FIRST_X_OFFSET = 0.10f;  // first center x = -aspect + this
+static const float TW_BTN_SPACING    = 0.15f;  // horizontal distance between button centers
+static const float TW_ROW_SPACING    = 0.16f;  // vertical distance between rows (stack upward)
+static const float TW_ROW_Y          = -0.88f; // bottom row center y
+static const float TW_FIRST_X_OFFSET = 0.10f;  // first column center x = -aspect + this
 static const float TW_LABEL_SIZE     = 0.032f; // label text size (fits the widest, "100X"/"500X")
+static const int   TW_PER_ROW        = 4;       // buttons per row (bottom row of 4, upper of 3)
 static const int   TW_LEVELS[]       = {1, 2, 5, 10, 50, 100, 500};
 static constexpr int TW_LEVEL_COUNT  = sizeof(TW_LEVELS) / sizeof(TW_LEVELS[0]);
 
@@ -64,6 +68,23 @@ static const float TL_Y            = 0.88f;  // vertical center (upper area)
 static const float TL_HALF_H       = 0.025f; // bar half-thickness
 static const float TL_SENSE_MARGIN = 0.08f;  // easier to grab
 
+// "Change ship" button: appears below the thrust limiter only while the ship is parked on
+// Earth (its home base). Left-aligned under the slider; opens the ship-selection screen.
+static const float CS_BTN_HALF_W = 0.23f;   // half width (fits "CHANGE SHIP" at CS_LABEL_SIZE)
+static const float CS_BTN_HALF_H = 0.06f;   // half height
+static const float CS_BTN_Y      = 0.66f;   // center y (just below the THRUST LIMIT label ~0.78)
+static const float CS_LABEL_SIZE = 0.045f;  // label text size
+
+// "Upgrades" button: stacked just below "Change ship" (same width/height), also Earth-only.
+static const float UP_BTN_Y = 0.52f;        // center y (below the Change ship button)
+
+// Science-points readout: lower-right, tucked below the fuel gauge (which ends at y -0.3) and
+// above the timewarp rows (whose top row tops out near y -0.65). Sitting between them keeps it
+// clear of both even in portrait, where the 4-wide timewarp row reaches past screen center.
+static const float SCI_X_OFFSET   = 0.26f;  // center x = aspect - this
+static const float SCI_Y          = -0.45f;
+static const float SCI_LABEL_SIZE = 0.05f;
+
 static const char *vertex = R"vertex(#version 300 es
 in vec3 inPosition;
 uniform mat4 uMVP;
@@ -82,12 +103,26 @@ void main() {
 )fragment";
 
 Renderer::~Renderer() {
+    // Backstop save: the destructor runs on APP_CMD_TERM_WINDOW (always before the process is
+    // torn down on backgrounding). The primary trigger is APP_CMD_PAUSE (see main.cpp).
+    saveState();
     if (display_ != EGL_NO_DISPLAY) {
         eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (context_ != EGL_NO_CONTEXT) eglDestroyContext(display_, context_);
         if (surface_ != EGL_NO_SURFACE) eglDestroySurface(display_, surface_);
         eglTerminate(display_);
     }
+}
+
+std::string Renderer::savePath() const {
+    if (!app_ || !app_->activity || !app_->activity->internalDataPath) return std::string();
+    return std::string(app_->activity->internalDataPath) + "/savegame.dat";
+}
+
+void Renderer::saveState() {
+    if (!gameStarted_) return; // nothing to persist until a game is actually in progress
+    std::string p = savePath();
+    if (!p.empty()) game_.saveTo(p);
 }
 
 void Renderer::initRenderer() {
@@ -279,6 +314,9 @@ void Renderer::drawText(const std::string& text, Vec2 pos, float size, float col
             case '7': drawLine(0, 1, 1, 1); drawLine(1, 1, 0.4f, 0); break;
             case '8': drawLine(0, 0, 1, 0); drawLine(1, 0, 1, 1); drawLine(1, 1, 0, 1); drawLine(0, 1, 0, 0); drawLine(0, 0.5f, 1, 0.5f); break;
             case '9': drawLine(1, 0, 1, 1); drawLine(1, 1, 0, 1); drawLine(0, 1, 0, 0.5f); drawLine(0, 0.5f, 1, 0.5f); break;
+            case '.': drawLine(0.35f, 0.0f, 0.55f, 0.0f); break;
+            case '+': drawLine(0.2f, 0.5f, 0.8f, 0.5f); drawLine(0.5f, 0.2f, 0.5f, 0.8f); break;
+            case '-': drawLine(0.2f, 0.5f, 0.8f, 0.5f); break;
         }
         x += charW + gap;
     }
@@ -407,6 +445,8 @@ void Renderer::render() {
         renderGame();
     } else if (screen_ == Screen::Start) {
         drawStartScreen();
+    } else if (screen_ == Screen::Upgrades) {
+        drawUpgradesScreen();
     } else {
         drawCustomizeScreen();
     }
@@ -533,19 +573,24 @@ void Renderer::renderGame() {
     drawPolygon({{fx1, FUEL_Y_MIN}, {fx2, FUEL_Y_MIN}, {fx2, FUEL_Y_MAX}, {fx1, FUEL_Y_MAX}}, uiColor);
     float fuelFrac = game_.getFuelFraction();
     float fuelTop = FUEL_Y_MIN + (FUEL_Y_MAX - FUEL_Y_MIN) * fuelFrac;
-    // Green normally; turns red when a finite tank runs low.
+    // Green normally; turns red when the tank runs low.
     float fuelFill[4] = {0.30f, 0.90f, 0.40f, 0.7f * uiFade};
-    if (!game_.shipHasInfiniteFuel() && fuelFrac < 0.25f) { fuelFill[0] = 0.95f; fuelFill[1] = 0.30f; fuelFill[2] = 0.25f; }
+    if (fuelFrac < 0.25f) { fuelFill[0] = 0.95f; fuelFill[1] = 0.30f; fuelFill[2] = 0.25f; }
     drawPolygon({{fx1, FUEL_Y_MIN}, {fx2, FUEL_Y_MIN}, {fx2, fuelTop}, {fx1, fuelTop}}, fuelFill);
 
     // Labels
     float textColor[4] = {1, 1, 1, 0.5f * uiFade};
-    drawText(game_.shipHasInfiniteFuel() ? "INF" : "FUEL", {fx1 - 0.22f, FUEL_Y_MAX + 0.03f}, 0.05f, textColor);
+    drawText("FUEL", {fx1 - 0.22f, FUEL_Y_MAX + 0.03f}, 0.05f, textColor);
 
-    // Timewarp buttons (bottom-left row): each labeled with its multiplier; active one is highlighted
+    // Science-points readout (lower-right corner)
+    drawTextCentered("SCI " + std::to_string(game_.getScience()), {aspect - SCI_X_OFFSET, SCI_Y}, SCI_LABEL_SIZE, textColor);
+
+    // Timewarp buttons (bottom-left, two rows): each labeled with its multiplier; active one
+    // is highlighted. Bottom row holds the first TW_PER_ROW levels; the rest stack above.
     for (int i = 0; i < TW_LEVEL_COUNT; ++i) {
-        float cx = -aspect + TW_FIRST_X_OFFSET + i * TW_BTN_SPACING;
-        float cy = TW_ROW_Y;
+        int row = i / TW_PER_ROW, col = i % TW_PER_ROW;
+        float cx = -aspect + TW_FIRST_X_OFFSET + col * TW_BTN_SPACING;
+        float cy = TW_ROW_Y + row * TW_ROW_SPACING;
         float bx1 = cx - TW_BTN_HALF, bx2 = cx + TW_BTN_HALF;
         float by1 = cy - TW_BTN_HALF, by2 = cy + TW_BTN_HALF;
         float* bg = (game_.getTimeWarp() == TW_LEVELS[i]) ? activeColor : uiColor;
@@ -566,6 +611,22 @@ void Renderer::renderGame() {
     float tlHandleW = 0.012f, tlHandleH = TL_HALF_H * 2.2f;
     drawPolygon({{tlFillX - tlHandleW, TL_Y - tlHandleH}, {tlFillX + tlHandleW, TL_Y - tlHandleH}, {tlFillX + tlHandleW, TL_Y + tlHandleH}, {tlFillX - tlHandleW, TL_Y + tlHandleH}}, activeColor);
     drawText("THRUST LIMIT", {tlx1, TL_Y - 0.1f}, 0.04f, textColor);
+
+    // "Change ship" button (below the thrust limiter): only while parked on Earth, the home
+    // base. Left-aligned under the slider; opens the ship-selection screen. Hit-test mirrored
+    // in handleGameInput.
+    if (game_.isOnEarth()) {
+        float csCx = tlx1 + CS_BTN_HALF_W;
+        float cbx1 = csCx - CS_BTN_HALF_W, cbx2 = csCx + CS_BTN_HALF_W;
+        float cby1 = CS_BTN_Y - CS_BTN_HALF_H, cby2 = CS_BTN_Y + CS_BTN_HALF_H;
+        drawPolygon({{cbx1, cby1}, {cbx2, cby1}, {cbx2, cby2}, {cbx1, cby2}}, uiColor);
+        drawTextCentered("CHANGE SHIP", {csCx, CS_BTN_Y}, CS_LABEL_SIZE, textColor);
+
+        // "Upgrades" button just below (same left-aligned column / size)
+        float uby1 = UP_BTN_Y - CS_BTN_HALF_H, uby2 = UP_BTN_Y + CS_BTN_HALF_H;
+        drawPolygon({{cbx1, uby1}, {cbx2, uby1}, {cbx2, uby2}, {cbx1, uby2}}, uiColor);
+        drawTextCentered("UPGRADES", {csCx, UP_BTN_Y}, CS_LABEL_SIZE, textColor);
+    }
 
     // Camera mode button (upper-right corner, translucent square with a camera icon)
     float camCx = aspect - CAM_BTN_X_OFFSET;
@@ -602,13 +663,18 @@ void Renderer::drawStartScreen() {
     drawTextCentered("ORBITAL",  {0.0f, 0.64f}, 0.11f, titleColor);
     drawTextCentered("VELOCITY", {0.0f, 0.50f}, 0.11f, titleColor);
 
-    // PLAY button (hit-test mirrored in handleMenuInput)
-    drawPolygon({{-0.35f, 0.03f}, {0.35f, 0.03f}, {0.35f, 0.27f}, {-0.35f, 0.27f}}, btnColor);
-    drawTextCentered("PLAY", {0.0f, 0.15f}, 0.08f, textColor);
-
-    // CUSTOMIZE button
-    drawPolygon({{-0.35f, -0.32f}, {0.35f, -0.32f}, {0.35f, -0.08f}, {-0.35f, -0.08f}}, btnColor);
-    drawTextCentered("CUSTOMIZE", {0.0f, -0.2f}, 0.06f, textColor);
+    // Title buttons (hit-tests mirrored in handleMenuInput). With a valid save, offer
+    // CONTINUE (resume) and NEW GAME (wipe + fresh start); otherwise a single PLAY. Ship
+    // customization now lives in-game (the "Change ship" button on Earth).
+    if (hasSave_) {
+        drawPolygon({{-0.35f, 0.20f}, {0.35f, 0.20f}, {0.35f, 0.40f}, {-0.35f, 0.40f}}, btnColor);
+        drawTextCentered("CONTINUE", {0.0f, 0.30f}, 0.06f, textColor);
+        drawPolygon({{-0.35f, -0.05f}, {0.35f, -0.05f}, {0.35f, 0.15f}, {-0.35f, 0.15f}}, btnColor);
+        drawTextCentered("NEW GAME", {0.0f, 0.05f}, 0.06f, textColor);
+    } else {
+        drawPolygon({{-0.35f, 0.03f}, {0.35f, 0.03f}, {0.35f, 0.27f}, {-0.35f, 0.27f}}, btnColor);
+        drawTextCentered("PLAY", {0.0f, 0.15f}, 0.08f, textColor);
+    }
 
     // Preview of the currently selected ship
     setUIMVP({0.0f, -0.62f}, 0.14f, 0.0f);
@@ -630,21 +696,24 @@ void Renderer::drawCustomizeScreen() {
     float btnColor[4]   = {1, 1, 1, 0.2f};
     float arrowColor[4] = {1, 1, 1, 0.7f};
 
-    drawTextCentered("CUSTOMIZE", {0.0f, 0.80f}, 0.09f, titleColor);
+    drawTextCentered("CHANGE SHIP", {0.0f, 0.82f}, 0.08f, titleColor);
 
     const char* names[3] = {"TRIANGLE", "ROCKET", "FALCON"};
-    const char* fuels[3] = {"FUEL LOW", "FUEL MED", "FUEL INF"};
     int sel = (int)selectedShip_;
+    bool unlocked = game_.isShipUnlocked(selectedShip_);
+
+    // Science balance (so the player can gauge affordability of unlocks)
+    drawTextCentered("SCIENCE " + std::to_string(game_.getScience()), {0.0f, 0.66f}, 0.05f, textColor);
 
     // Centered ship sprite (scale capped so it doesn't balloon on tall/portrait screens)
     float spriteScale = 0.26f * std::min(1.0f, aspect);
     setUIMVP({0.0f, 0.30f}, spriteScale, 0.0f);
     drawShipShape(selectedShip_, 1.0f);
 
-    // Name + fuel under the sprite
+    // Name + lock status under the sprite (ships are cosmetic; variants are unlocked with science)
     resetUI();
     drawTextCentered(names[sel], {0.0f, -0.05f}, 0.07f, textColor);
-    drawTextCentered(fuels[sel], {0.0f, -0.18f}, 0.05f, textColor);
+    drawTextCentered(unlocked ? "UNLOCKED" : "LOCKED", {0.0f, -0.18f}, 0.05f, textColor);
 
     // Left/right arrows flanking the sprite to switch ships (kept on-screen; clamped so they
     // don't drift too far out on wide/landscape screens). Hit-tests mirror these positions.
@@ -653,11 +722,49 @@ void Renderer::drawCustomizeScreen() {
     drawPolygon({{-arrowX - aw, ay}, {-arrowX + aw, ay + ah}, {-arrowX + aw, ay - ah}}, arrowColor); // points left
     drawPolygon({{arrowX + aw, ay}, {arrowX - aw, ay + ah}, {arrowX - aw, ay - ah}}, arrowColor);    // points right
 
-    // Smaller BACK / PLAY buttons, close together near the bottom
+    // Smaller BACK / action buttons, close together near the bottom. The right button is
+    // SELECT for an unlocked ship, or UNLOCK (cost) for a locked one.
     drawPolygon({{-0.40f, -0.78f}, {-0.04f, -0.78f}, {-0.04f, -0.62f}, {-0.40f, -0.62f}}, btnColor);
     drawTextCentered("BACK", {-0.22f, -0.70f}, 0.05f, textColor);
     drawPolygon({{0.04f, -0.78f}, {0.40f, -0.78f}, {0.40f, -0.62f}, {0.04f, -0.62f}}, btnColor);
-    drawTextCentered("PLAY", {0.22f, -0.70f}, 0.05f, textColor);
+    if (unlocked) {
+        drawTextCentered("SELECT", {0.22f, -0.70f}, 0.05f, textColor);
+    } else {
+        drawTextCentered("UNLOCK " + std::to_string(game_.shipUnlockCost(selectedShip_)), {0.22f, -0.70f}, 0.042f, textColor);
+    }
+}
+
+void Renderer::drawUpgradesScreen() {
+    float aspect = float(width_) / height_;
+    float uiMVP[16];
+    Utility::buildIdentityMatrix(uiMVP);
+    uiMVP[0] = 1.0f / aspect;
+    shader_->setMVP(uiMVP);
+
+    float titleColor[4] = {1, 1, 1, 0.9f};
+    float textColor[4]  = {1, 1, 1, 0.9f};
+    float btnColor[4]   = {1, 1, 1, 0.2f};
+
+    drawTextCentered("UPGRADES", {0.0f, 0.82f}, 0.09f, titleColor);
+
+    int sci = game_.getScience();
+    drawTextCentered("SCIENCE " + std::to_string(sci), {0.0f, 0.58f}, 0.06f, textColor);
+
+    char cap[32];
+    snprintf(cap, sizeof cap, "FUEL CAP %.1f", game_.getFuelCapacity());
+    drawTextCentered(cap, {0.0f, 0.42f}, 0.06f, textColor);
+
+    // BUY FUEL button (dimmed when there isn't enough science). Hit-test mirrored in handleMenuInput.
+    bool affordable = sci >= 1;
+    float buyBtn[4]  = {1, 1, 1, affordable ? 0.25f : 0.10f};
+    float buyText[4] = {1, 1, 1, affordable ? 0.9f : 0.4f};
+    drawPolygon({{-0.34f, 0.07f}, {0.34f, 0.07f}, {0.34f, 0.23f}, {-0.34f, 0.23f}}, buyBtn);
+    drawTextCentered("BUY FUEL +0.1", {0.0f, 0.15f}, 0.045f, buyText);
+    drawTextCentered("COST 1 SCI", {0.0f, -0.02f}, 0.04f, textColor);
+
+    // BACK button
+    drawPolygon({{-0.18f, -0.83f}, {0.18f, -0.83f}, {0.18f, -0.67f}, {-0.18f, -0.67f}}, btnColor);
+    drawTextCentered("BACK", {0.0f, -0.75f}, 0.05f, textColor);
 }
 
 void Renderer::handleInput() {
@@ -733,12 +840,32 @@ void Renderer::handleGameInput(const GameActivityMotionEvent& motionEvent, float
             onButton = true;
         }
 
-        // Timewarp buttons (bottom-left row): select speed on tap
+        // "Change ship" button (below the thrust limiter): only tappable while parked on
+        // Earth, where the button is drawn. Opens the ship-selection screen preset to the
+        // current ship. Mirrors the rect in renderGame.
+        if (isDown && game_.isOnEarth()) {
+            float csCx = (-aspect + TL_X_OFFSET) + CS_BTN_HALF_W;
+            if (x >= csCx - CS_BTN_HALF_W && x <= csCx + CS_BTN_HALF_W &&
+                y >= CS_BTN_Y - CS_BTN_HALF_H && y <= CS_BTN_Y + CS_BTN_HALF_H) {
+                selectedShip_ = game_.getShip().type;
+                screen_ = Screen::Customize;
+                onButton = true;
+            } else if (x >= csCx - CS_BTN_HALF_W && x <= csCx + CS_BTN_HALF_W &&
+                       y >= UP_BTN_Y - CS_BTN_HALF_H && y <= UP_BTN_Y + CS_BTN_HALF_H) {
+                screen_ = Screen::Upgrades;
+                onButton = true;
+            }
+        }
+
+        // Timewarp buttons (bottom-left, two rows): select speed on tap. Must mirror the
+        // draw loop's row/col layout exactly.
         if (isDown) {
             for (int b = 0; b < TW_LEVEL_COUNT; ++b) {
-                float cx = -aspect + TW_FIRST_X_OFFSET + b * TW_BTN_SPACING;
+                int row = b / TW_PER_ROW, col = b % TW_PER_ROW;
+                float cx = -aspect + TW_FIRST_X_OFFSET + col * TW_BTN_SPACING;
+                float cy = TW_ROW_Y + row * TW_ROW_SPACING;
                 if (x >= cx - TW_BTN_HALF && x <= cx + TW_BTN_HALF &&
-                    y >= TW_ROW_Y - TW_BTN_HALF && y <= TW_ROW_Y + TW_BTN_HALF) {
+                    y >= cy - TW_BTN_HALF && y <= cy + TW_BTN_HALF) {
                     game_.setTimeWarp(TW_LEVELS[b]);
                     onButton = true;
                 }
@@ -801,6 +928,7 @@ void Renderer::handleMenuInput(const GameActivityMotionEvent& motionEvent, float
 
     auto startPlaying = [&]() {
         game_.startWithShip(selectedShip_);
+        gameStarted_ = true;
         screen_ = Screen::Playing;
         uiIdleTime_ = 0.0f;
         uiHidden_ = false;
@@ -808,18 +936,54 @@ void Renderer::handleMenuInput(const GameActivityMotionEvent& motionEvent, float
     };
 
     if (screen_ == Screen::Start) {
-        if (hitRect(x, y, 0.0f, 0.15f, 0.35f, 0.12f)) startPlaying();
-        else if (hitRect(x, y, 0.0f, -0.2f, 0.35f, 0.12f)) screen_ = Screen::Customize;
-    } else { // Customize
+        if (hasSave_) {
+            if (hitRect(x, y, 0.0f, 0.30f, 0.35f, 0.10f)) {        // CONTINUE: resume the save
+                if (game_.loadFrom(savePath())) {
+                    selectedShip_ = game_.getShip().type;
+                    gameStarted_ = true;
+                    screen_ = Screen::Playing;
+                    uiIdleTime_ = 0.0f;
+                    uiHidden_ = false;
+                    lastPinchDist_ = -1.0f;
+                } else {                                            // corrupt save: wipe + fresh
+                    std::remove(savePath().c_str());
+                    hasSave_ = false;
+                    selectedShip_ = ShipType::Triangle;
+                    startPlaying();
+                }
+            } else if (hitRect(x, y, 0.0f, 0.05f, 0.35f, 0.10f)) { // NEW GAME: wipe + fresh start
+                std::remove(savePath().c_str());
+                hasSave_ = false;
+                selectedShip_ = ShipType::Triangle;
+                startPlaying();
+            }
+        } else {
+            if (hitRect(x, y, 0.0f, 0.15f, 0.35f, 0.12f)) startPlaying();
+        }
+    } else if (screen_ == Screen::Customize) { // reached from the in-game "Change ship" button
         float arrowX = std::min(aspect - 0.18f, 0.62f);
         if (hitRect(x, y, -arrowX, 0.30f, 0.16f, 0.20f)) {           // left arrow: previous ship
             selectedShip_ = (ShipType)(((int)selectedShip_ + 2) % 3);
         } else if (hitRect(x, y, arrowX, 0.30f, 0.16f, 0.20f)) {     // right arrow: next ship
             selectedShip_ = (ShipType)(((int)selectedShip_ + 1) % 3);
-        } else if (hitRect(x, y, -0.22f, -0.70f, 0.18f, 0.10f)) {    // BACK
-            screen_ = Screen::Start;
-        } else if (hitRect(x, y, 0.22f, -0.70f, 0.18f, 0.10f)) {     // PLAY
-            startPlaying();
+        } else if (hitRect(x, y, -0.22f, -0.70f, 0.18f, 0.10f)) {    // BACK: resume, keep ship
+            screen_ = Screen::Playing;
+            uiIdleTime_ = 0.0f;
+            uiHidden_ = false;
+        } else if (hitRect(x, y, 0.22f, -0.70f, 0.18f, 0.10f)) {     // SELECT (unlocked) / UNLOCK (locked)
+            if (game_.isShipUnlocked(selectedShip_)) {
+                startPlaying();                  // relaunch the chosen cosmetic on the Earth pad
+            } else {
+                game_.unlockShip(selectedShip_); // spend science; label flips to SELECT on success
+            }
+        }
+    } else if (screen_ == Screen::Upgrades) {
+        if (hitRect(x, y, 0.0f, 0.15f, 0.34f, 0.08f)) {              // BUY FUEL +0.1
+            game_.buyFuelUpgrade();
+        } else if (hitRect(x, y, 0.0f, -0.75f, 0.18f, 0.08f)) {      // BACK: resume
+            screen_ = Screen::Playing;
+            uiIdleTime_ = 0.0f;
+            uiHidden_ = false;
         }
     }
 }
