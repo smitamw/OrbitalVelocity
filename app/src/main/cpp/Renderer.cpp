@@ -517,11 +517,48 @@ void Renderer::renderGame() {
         drawOrbit(ship.pos, ship.vel, *primary, primary->mu, shipOrbitColor);
     }
 
-    // Draw Bodies
-    for (const auto& body : bodies) {
+    // HUD fade fraction (1 opaque → 0 hidden). Computed here as well as for the HUD below so the
+    // planet/moon position markers fade on the same 5s timer as the rest of the UI.
+    float uiFade = std::max(0.0f, std::min(1.0f, 1.0f - (uiIdleTime_ - HUD_FADE_START) / HUD_FADE_DUR));
+
+    // Draw Bodies. Each disc gets a translucent gray "night side" shadow: a semicircle covering
+    // the half facing away from the Sun (bodies[0], the light source), drawn on top of the body.
+    const Vec2 sunPos = bodies.empty() ? Vec2{0, 0} : bodies[0].pos;
+    for (size_t i = 0; i < bodies.size(); ++i) {
+        const auto& body = bodies[i];
         setMVP(body.pos, body.radius, 0);
         float c[4]; std::copy(body.color, body.color+4, c);
         drawCircle({0,0}, 1.0f, 64, c);
+
+        // Shadow: skip the Sun itself. Orient local +x away from the Sun and fill the +x half
+        // (a unit-radius semicircle), so the shaded side always points into deep space.
+        if (i != 0) {
+            Vec2 away = body.pos - sunPos;
+            float shadowAngle = std::atan2(away.y, away.x);
+            setMVP(body.pos, body.radius, shadowAngle);
+            float shadow[4] = {0.05f, 0.05f, 0.05f, 0.45f};
+            std::vector<Vec2> arc = {{0.0f, 0.0f}};
+            const int seg = 32;
+            for (int s = 0; s <= seg; ++s) {
+                float a = -M_PI * 0.5f + M_PI * s / seg;
+                arc.push_back({std::cos(a), std::sin(a)});
+            }
+            drawPolygon(arc, shadow);
+        }
+    }
+
+    // Position markers: a translucent disc in each body's colour at a fixed minimum on-screen
+    // size, so planets and moons stay findable when zoomed far out (where their real discs shrink
+    // below a pixel). Skipped once a body's actual disc is already large enough. Fades with the HUD.
+    if (uiFade > 0.0f) {
+        const float kMarkerScreenR = 0.018f; // minimum on-screen radius, in NDC (vertical) units
+        for (const auto& body : bodies) {
+            if (body.radius * zoom >= kMarkerScreenR) continue; // disc already big enough
+            float scale = kMarkerScreenR / zoom;                // world scale → fixed screen size
+            setMVP(body.pos, scale, 0);
+            float m[4] = {body.color[0], body.color[1], body.color[2], 0.5f * uiFade};
+            drawCircle({0,0}, 1.0f, 24, m);
+        }
     }
 
     // Draw Ship (shape depends on the selected variant). The exhaust plume reflects the engine's
@@ -540,7 +577,7 @@ void Renderer::renderGame() {
     shader_->setMVP(uiMVP);
 
     // HUD fade: fully opaque until FADE_START seconds of inactivity, then fades over FADE_DUR.
-    float uiFade = std::max(0.0f, std::min(1.0f, 1.0f - (uiIdleTime_ - HUD_FADE_START) / HUD_FADE_DUR));
+    // uiFade was already computed above (it also drives the body position markers).
     uiHidden_ = (uiFade <= 0.0f);
 
     float uiColor[4] = {1, 1, 1, 0.2f * uiFade};

@@ -204,8 +204,34 @@ void Game::update(float dt) {
                 Vec2 normal = (ship_.pos - body.pos).normalized();
                 ship_.pos = body.pos + normal * body.radius;
                 Vec2 relativeVel = ship_.vel - body.vel;
+                float vn = relativeVel.dot(normal); // radial speed: <0 = moving into the surface
+
+                // Resolve contact by stopping only the surface-penetrating (inward) motion; the
+                // tangential and outward components are preserved. The ground can only push the
+                // ship outward — it must never erase the velocity the engine is building. Zeroing
+                // the *whole* relative velocity here (as before) let the clamp wipe each substep's
+                // thrust during launch, pinning the ship to the surface whenever it pushed
+                // tangentially (a gravity turn) or with only marginal vertical thrust.
+                if (vn < 0.0f) {
+                    Vec2 tangential = relativeVel - normal * vn;
+                    // Surface friction: bleed off the tangential slide so a grounded ship coasts
+                    // to a stop instead of skating around the planet forever. Applied as a fixed
+                    // deceleration, capped at the current slide speed so it can only halt the
+                    // slide, never reverse it; since it's resolved before thrust, the engine
+                    // (350) easily overcomes it for a tangential launch.
+                    const float kSurfaceFriction = 50.0f; // tangential decel, units/s^2
+                    float tanSpeed = tangential.length();
+                    if (tanSpeed > 0.0f) {
+                        float drop = std::min(tanSpeed, kSurfaceFriction * subDt);
+                        tangential = tangential * ((tanSpeed - drop) / tanSpeed);
+                    }
+                    // Soft touchdown absorbs the impact; a fast hit bounces with some restitution.
+                    float restitution = (relativeVel.length() < 20.0f) ? 0.0f : 0.3f;
+                    ship_.vel = body.vel + tangential - normal * (vn * restitution);
+                }
+
+                // Landing rewards/refuel fire on a gentle touchdown (low relative speed).
                 if (relativeVel.length() < 20.0f) {
-                    ship_.vel = body.vel;
                     if ((int)bi == kEarthIndex) {
                         // Earth is the home base: parking refuels, flags it as landed (which
                         // surfaces the in-game buttons), and pays out the return bonus for every
@@ -223,8 +249,6 @@ void Game::update(float dt) {
                         visited_[bi] = true;
                         science_ += 1;
                     }
-                } else {
-                    ship_.vel = body.vel + (relativeVel - 2.0f * normal * relativeVel.dot(normal)) * 0.3f;
                 }
             }
         }
